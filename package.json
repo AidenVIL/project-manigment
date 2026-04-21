@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node scripts/render-build.mjs"
+    "build": "node scripts/render-build.mjs",
+    "start": "node server.mjs"
   }
 }
