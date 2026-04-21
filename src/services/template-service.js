@@ -40,9 +40,58 @@ export const availableTokens = [
   "{{giving_in_return}}"
 ];
 
+export const variableDefinitions = [
+  {
+    id: "team",
+    label: "Team Details",
+    items: [
+      { token: "{{team_name}}", label: "Team Name", key: "team_name", help: "Atomic team name" },
+      { token: "{{season_label}}", label: "Season Label", key: "season_label", help: "Current season or campaign" },
+      { token: "{{team_signature}}", label: "Team Signature", key: "team_signature", help: "How the email signs off" },
+      { token: "{{team_website}}", label: "Team Website", key: "team_website", help: "Main site or sponsor deck link" }
+    ]
+  },
+  {
+    id: "company",
+    label: "Company Details",
+    items: [
+      { token: "{{company_name}}", label: "Company Name", key: "company_name", help: "The company you are emailing" },
+      { token: "{{contribution_type}}", label: "Support Type", key: "contribution_type", help: "What they may give" },
+      { token: "{{contribution_value}}", label: "Support Value", key: "contribution_value", help: "Value of confirmed support" }
+    ]
+  },
+  {
+    id: "contact",
+    label: "Contact Details",
+    items: [
+      { token: "{{contact_first_name}}", label: "Contact First Name", key: "contact_first_name", help: "Friendly greeting name" },
+      { token: "{{contact_full_name}}", label: "Contact Full Name", key: "contact_full_name", help: "Full contact name" },
+      { token: "{{contact_email}}", label: "Contact Email", key: "contact_email", help: "Saved contact email address" }
+    ]
+  },
+  {
+    id: "sponsorship",
+    label: "Sponsorship Ask",
+    items: [
+      { token: "{{ask_type}}", label: "Ask Type", key: "ask_type", help: "Cash, machining, media and so on" },
+      { token: "{{ask_value}}", label: "Ask Value", key: "ask_value", help: "How much support you are asking for" },
+      { token: "{{request_from_us}}", label: "What They Want From Us", key: "request_from_us", help: "Requested deliverables" },
+      { token: "{{giving_in_return}}", label: "What They Are Giving", key: "giving_in_return", help: "Offer or return package" }
+    ]
+  },
+  {
+    id: "timeline",
+    label: "Timeline",
+    items: [
+      { token: "{{next_follow_up}}", label: "Next Follow-Up", key: "next_follow_up", help: "Scheduled follow-up date" },
+      { token: "{{proposal_date}}", label: "Proposal Date", key: "proposal_date", help: "Proposal or milestone date" }
+    ]
+  }
+];
+
 export const editorTabs = [
-  { id: "layers", label: "Layers" },
-  { id: "blocks", label: "Blocks" }
+  { id: "layers", label: "Structure" },
+  { id: "blocks", label: "Add" }
 ];
 
 export const blockDefinitions = [

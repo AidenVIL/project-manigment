@@ -23,24 +23,10 @@ function renderTemplateCards(templates, drafts) {
               Draft Email
             </button>
           </div>
-          ${
-            linkedDrafts.length
-              ? `
-                <div class="draft-list">
-                  ${linkedDrafts
-                    .slice(0, 3)
-                    .map(
-                      (draft) => `
-                        <button type="button" class="draft-pill" data-action="open-saved-draft" data-id="${draft.id}">
-                          ${escapeHtml(draft.name)} &middot; ${escapeHtml(formatDate(draft.updatedAt))}
-                        </button>
-                      `
-                    )
-                    .join("")}
-                </div>
-              `
-              : `<div class="empty-inline">No saved drafts yet.</div>`
-          }
+          <div class="template-meta-row">
+            <span>${linkedDrafts.length} saved draft${linkedDrafts.length === 1 ? "" : "s"}</span>
+            <small>${escapeHtml(template.category)}</small>
+          </div>
         </article>
       `;
     })

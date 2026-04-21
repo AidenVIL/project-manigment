@@ -1,9 +1,8 @@
 import {
-  availableTokens,
   blockDefinitions,
   editorTabs,
   renderBlockHtml,
-  renderTemplateHtmlFromDesign
+  variableDefinitions
 } from "../../services/template-service.js";
 import { escapeHtml } from "../../utils/formatters.js";
 
@@ -24,6 +23,7 @@ function renderLayersPanel(editor) {
     <div class="editor-pane-list">
       <button type="button" class="layer-row ${editor.selectedBlockId === "body" ? "is-active" : ""}" data-action="select-editor-body">
         <span>Body</span>
+        <small>Canvas</small>
       </button>
       ${editor.design.blocks
         .map(
@@ -44,33 +44,67 @@ function renderLayersPanel(editor) {
   `;
 }
 
-function renderBlocksPanel() {
+function renderVariablesPanel(previewTokens) {
+  return `
+    <div class="variable-panel">
+      <div class="editor-section-label">
+        <span class="eyebrow">Variables</span>
+        <p>Click one to insert it into the subject or the selected text field.</p>
+      </div>
+      <div class="variable-groups">
+        ${variableDefinitions
+          .map(
+            (group) => `
+              <section class="variable-group">
+                <h4>${escapeHtml(group.label)}</h4>
+                <div class="variable-list">
+                  ${group.items
+                    .map(
+                      (item) => `
+                        <button
+                          type="button"
+                          class="variable-card"
+                          data-action="insert-token"
+                          data-id="${escapeHtml(item.token)}"
+                        >
+                          <strong>${escapeHtml(item.label)}</strong>
+                          <span>${escapeHtml(item.help)}</span>
+                          <code>${escapeHtml(item.token)}</code>
+                          <small>Example: ${escapeHtml(String(previewTokens?.[item.key] || "Not available yet"))}</small>
+                        </button>
+                      `
+                    )
+                    .join("")}
+                </div>
+              </section>
+            `
+          )
+          .join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderBlocksPanel(previewTokens) {
   return `
     <div class="editor-pane-list">
-      ${blockDefinitions
-        .map(
-          (block) => `
-            <button type="button" class="builder-card" data-action="add-editor-block" data-id="${block.id}">
-              <strong>${escapeHtml(block.label)}</strong>
-              <span>Add a ${escapeHtml(block.label.toLowerCase())} block to the email.</span>
-            </button>
-          `
-        )
-        .join("")}
-      <div class="token-panel">
-        <span class="eyebrow">Tokens</span>
-        <div class="token-grid token-grid--compact">
-          ${availableTokens
-            .map(
-              (token) => `
-                <button type="button" class="token-card token-card--button" data-action="insert-token" data-id="${escapeHtml(token)}">
-                  <span>${escapeHtml(token)}</span>
-                </button>
-              `
-            )
-            .join("")}
-        </div>
+      <div class="editor-section-label">
+        <span class="eyebrow">Blocks</span>
+        <p>Add a content block, then edit it on the right.</p>
       </div>
+      <div class="block-grid">
+        ${blockDefinitions
+          .map(
+            (block) => `
+              <button type="button" class="builder-card" data-action="add-editor-block" data-id="${block.id}">
+                <strong>${escapeHtml(block.label)}</strong>
+                <span>${escapeHtml(`Add a ${block.label.toLowerCase()} block to the email.`)}</span>
+              </button>
+            `
+          )
+          .join("")}
+      </div>
+      ${renderVariablesPanel(previewTokens)}
     </div>
   `;
 }
@@ -87,17 +121,19 @@ function renderCanvas(design, company, selectedBlockId, device) {
           style="background:${design.canvas.emailBackground}; border-radius:${Number(design.canvas.radius || 0)}px;"
         >
           ${design.blocks
-            .map((block) => `
-              <div
-                class="canvas-block ${selectedBlockId === block.id ? "is-selected" : ""}"
-                data-action="select-editor-block"
-                data-id="${block.id}"
-              >
-                <div class="canvas-block__content">
-                  ${renderBlockHtml(block, company, design.canvas)}
+            .map(
+              (block) => `
+                <div
+                  class="canvas-block ${selectedBlockId === block.id ? "is-selected" : ""}"
+                  data-action="select-editor-block"
+                  data-id="${block.id}"
+                >
+                  <div class="canvas-block__content">
+                    ${renderBlockHtml(block, company, design.canvas)}
+                  </div>
                 </div>
-              </div>
-            `)
+              `
+            )
             .join("")}
         </div>
       </div>
@@ -249,8 +285,8 @@ function renderSelectedBlockInspector(editor) {
       <span class="eyebrow">Selected Block</span>
       <h3>${escapeHtml(block.name || block.type)}</h3>
       <div class="inspector-toolbar">
-        <button type="button" class="ghost-button" data-action="move-block-up" data-id="${block.id}">Move Up</button>
-        <button type="button" class="ghost-button" data-action="move-block-down" data-id="${block.id}">Move Down</button>
+        <button type="button" class="ghost-button" data-action="move-block-up" data-id="${block.id}">Up</button>
+        <button type="button" class="ghost-button" data-action="move-block-down" data-id="${block.id}">Down</button>
         <button type="button" class="ghost-button ghost-button--danger" data-action="delete-block" data-id="${block.id}">Delete</button>
       </div>
       <div class="form-grid">
@@ -261,12 +297,7 @@ function renderSelectedBlockInspector(editor) {
   `;
 }
 
-export function renderTemplateEditorView({ editor, company }) {
-  const preview = {
-    subject: editor.subjectInput,
-    html: renderTemplateHtmlFromDesign(editor.design, company)
-  };
-
+export function renderTemplateEditorView({ editor, company, preview }) {
   return `
     <main class="editor-page">
       <header class="editor-header">
@@ -275,7 +306,7 @@ export function renderTemplateEditorView({ editor, company }) {
           <div>
             <span class="eyebrow">${editor.mode === "template" ? "Template Editor" : "Draft Editor"}</span>
             <h1>${escapeHtml(editor.nameInput || "Untitled")}</h1>
-            <p>${editor.mode === "template" ? "Saving here updates the master template for future use." : "Changes here only affect this draft email."}</p>
+            <p>${editor.mode === "template" ? "Master version for future emails." : "One-off version that does not change the master."}</p>
           </div>
         </div>
         <div class="editor-header-right">
@@ -322,7 +353,7 @@ export function renderTemplateEditorView({ editor, company }) {
           ${
             editor.sidebarTab === "layers"
               ? renderLayersPanel(editor)
-              : renderBlocksPanel()
+              : renderBlocksPanel(preview.tokens || {})
           }
         </aside>
         <section class="editor-canvas-area">

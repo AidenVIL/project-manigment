@@ -279,9 +279,11 @@ function renderApp() {
   }
 
   if (state.editor?.open) {
+    const preview = buildEditorPreview(state.editor);
     root.innerHTML = renderTemplateEditorView({
       editor: state.editor,
-      company: getEditorCompany(state.editor)
+      company: getEditorCompany(state.editor),
+      preview
     });
     return;
   }
