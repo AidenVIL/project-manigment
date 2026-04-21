@@ -45,9 +45,13 @@ create table if not exists public.email_templates (
   category text not null default 'General',
   subject text not null,
   html text not null,
+  design jsonb,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
+
+alter table if exists public.email_templates
+add column if not exists design jsonb;
 
 drop trigger if exists trg_companies_updated_at on public.companies;
 create trigger trg_companies_updated_at

@@ -9,6 +9,18 @@ import { formatCurrency, formatDate } from "../utils/formatters.js";
 import { STORAGE_KEYS, storageService } from "./storage-service.js";
 import { supabaseService } from "./supabase-service.js";
 
+const defaultCanvas = {
+  bodyBackground: "#202522",
+  emailBackground: "#ffffff",
+  width: 680,
+  radius: 0,
+  fontFamily: "Arial, sans-serif"
+};
+
+function createId() {
+  return crypto.randomUUID();
+}
+
 export const availableTokens = [
   "{{team_name}}",
   "{{season_label}}",
@@ -28,73 +40,230 @@ export const availableTokens = [
   "{{giving_in_return}}"
 ];
 
-export const templateBuilderActions = [
+export const editorTabs = [
+  { id: "layers", label: "Layers" },
+  { id: "blocks", label: "Blocks" }
+];
+
+export const blockDefinitions = [
   { id: "heading", label: "Heading" },
   { id: "paragraph", label: "Paragraph" },
-  { id: "bold", label: "Bold" },
+  { id: "image", label: "Image" },
   { id: "button", label: "Button" },
   { id: "divider", label: "Divider" },
   { id: "spacer", label: "Spacer" }
 ];
 
-export const templateBlockLibrary = [
-  {
-    id: "intro",
-    name: "Intro Block",
-    description: "Opening copy with contact and sponsor fit.",
-    html: `<p style="margin:0 0 18px; color:#1d2a20; font-size:16px; line-height:1.7;">Hi {{contact_first_name}},</p>
-<p style="margin:0 0 18px; color:#405246; font-size:16px; line-height:1.7;">I am reaching out from {{team_name}} because we think {{company_name}} could be a strong fit for a partnership rooted in performance, visibility, and student engineering impact.</p>`
-  },
-  {
-    id: "value-prop",
-    name: "Value Block",
-    description: "Structured ask and return section.",
-    html: `<div style="margin:0 0 20px; padding:20px; border:1px solid #d4ead4; border-radius:18px; background:#f7fff7;">
-  <h3 style="margin:0 0 10px; color:#102012; font-size:20px;">Proposed Partnership</h3>
-  <p style="margin:0 0 10px; color:#405246; font-size:15px; line-height:1.7;"><strong>Support we are seeking:</strong> {{ask_type}} valued at {{ask_value}}</p>
-  <p style="margin:0; color:#405246; font-size:15px; line-height:1.7;"><strong>What we can offer:</strong> {{request_from_us}}</p>
-</div>`
-  },
-  {
-    id: "cta",
-    name: "CTA Block",
-    description: "Call to action button and closing.",
-    html: `<div style="margin:24px 0 20px;">
-  <a href="{{team_website}}" style="display:inline-block; padding:14px 22px; border-radius:999px; background:#32ce32; color:#051005; font-weight:700; text-decoration:none;">View Team Website</a>
-</div>
-<p style="margin:0; color:#405246; font-size:15px; line-height:1.7;">If it helps, I would be happy to send across a short proposal and set up a quick call.</p>`
-  },
-  {
-    id: "stats",
-    name: "Stats Card",
-    description: "Clean highlighted figures section.",
-    html: `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px;">
-  <tr>
-    <td style="width:50%; padding:8px;">
-      <div style="padding:18px; border-radius:18px; background:#0f1f12; color:#f4fff4;">
-        <div style="font-size:12px; letter-spacing:0.16em; text-transform:uppercase; opacity:0.7;">Ask Value</div>
-        <div style="margin-top:8px; font-size:28px; font-weight:700;">{{ask_value}}</div>
-      </div>
-    </td>
-    <td style="width:50%; padding:8px;">
-      <div style="padding:18px; border-radius:18px; background:#f3fff1; color:#102012; border:1px solid #d4ead4;">
-        <div style="font-size:12px; letter-spacing:0.16em; text-transform:uppercase; opacity:0.7;">Next Follow-Up</div>
-        <div style="margin-top:8px; font-size:24px; font-weight:700;">{{next_follow_up}}</div>
-      </div>
-    </td>
-  </tr>
-</table>`
-  }
-];
-
-function sortTemplates(templates) {
-  return [...templates].sort((left, right) => left.name.localeCompare(right.name));
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
 }
 
-function readStoredTemplates() {
-  return storageService
-    .read(STORAGE_KEYS.templates, [])
-    .map((template) => createTemplate(template));
+function escapeHtml(value = "") {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function escapeAttribute(value = "") {
+  return escapeHtml(value);
+}
+
+function createBlock(type, overrides = {}) {
+  const baseBlocks = {
+    heading: {
+      id: createId(),
+      type: "heading",
+      name: "Heading",
+      content: { text: "Heading text" },
+      styles: {
+        align: "center",
+        color: "#111111",
+        fontSize: 42,
+        fontWeight: 700,
+        paddingTop: 24,
+        paddingBottom: 16,
+        paddingX: 40
+      }
+    },
+    paragraph: {
+      id: createId(),
+      type: "paragraph",
+      name: "Paragraph",
+      content: { text: "Write your message here." },
+      styles: {
+        align: "center",
+        color: "#4a4a4a",
+        fontSize: 16,
+        lineHeight: 1.7,
+        paddingTop: 0,
+        paddingBottom: 18,
+        paddingX: 40
+      }
+    },
+    image: {
+      id: createId(),
+      type: "image",
+      name: "Image",
+      content: { src: APP_CONFIG.logoPath, alt: APP_CONFIG.teamName },
+      styles: {
+        align: "left",
+        width: 120,
+        paddingTop: 28,
+        paddingBottom: 18,
+        paddingX: 32,
+        backgroundColor: "#ffffff"
+      }
+    },
+    button: {
+      id: createId(),
+      type: "button",
+      name: "Button",
+      content: { label: "View Team Website", url: "{{team_website}}" },
+      styles: {
+        align: "center",
+        backgroundColor: APP_CONFIG.brand?.primary || "#32ce32",
+        color: "#041004",
+        radius: 999,
+        fontSize: 15,
+        fontWeight: 700,
+        paddingTop: 14,
+        paddingBottom: 14,
+        paddingX: 24,
+        outerPaddingTop: 8,
+        outerPaddingBottom: 24
+      }
+    },
+    divider: {
+      id: createId(),
+      type: "divider",
+      name: "Divider",
+      content: {},
+      styles: {
+        color: "#d9e5d9",
+        paddingTop: 24,
+        paddingBottom: 24,
+        paddingX: 40
+      }
+    },
+    spacer: {
+      id: createId(),
+      type: "spacer",
+      name: "Spacer",
+      content: {},
+      styles: {
+        height: 28
+      }
+    }
+  };
+
+  const base = clone(baseBlocks[type] || baseBlocks.paragraph);
+  return {
+    ...base,
+    ...overrides,
+    content: {
+      ...base.content,
+      ...(overrides.content || {})
+    },
+    styles: {
+      ...base.styles,
+      ...(overrides.styles || {})
+    }
+  };
+}
+
+export function createDefaultTemplateDesign(overrides = {}) {
+  const baseDesign = {
+    canvas: { ...defaultCanvas },
+    blocks: [
+      createBlock("image", {
+        name: "Logo",
+        styles: { align: "left", width: 118, paddingTop: 22, paddingBottom: 16, paddingX: 28 }
+      }),
+      createBlock("paragraph", {
+        name: "Eyebrow",
+        content: { text: "SPONSOR OUTREACH" },
+        styles: {
+          align: "center",
+          color: "#1a211a",
+          fontSize: 13,
+          fontWeight: 700,
+          paddingTop: 8,
+          paddingBottom: 12,
+          paddingX: 40
+        }
+      }),
+      createBlock("heading", {
+        name: "Main Heading",
+        content: { text: "Partner with {{team_name}}" },
+        styles: {
+          align: "center",
+          color: "#111111",
+          fontSize: 42,
+          fontWeight: 700,
+          paddingTop: 0,
+          paddingBottom: 16,
+          paddingX: 40
+        }
+      }),
+      createBlock("paragraph", {
+        name: "Intro Paragraph",
+        content: {
+          text: "Hi {{contact_first_name}},\n\nWe are reaching out from {{team_name}} because we think {{company_name}} could be a great fit for a performance-led partnership."
+        }
+      }),
+      createBlock("paragraph", {
+        name: "Offer Paragraph",
+        content: {
+          text: "We are currently seeking support around {{ask_type}} with a target value of {{ask_value}}, and we would love to tailor the package around what matters most to your team."
+        }
+      }),
+      createBlock("button"),
+      createBlock("paragraph", {
+        name: "Sign-Off",
+        content: { text: "Best,\n{{team_signature}}" },
+        styles: {
+          align: "left",
+          color: "#3f4c3f",
+          fontSize: 15,
+          lineHeight: 1.7,
+          paddingTop: 0,
+          paddingBottom: 28,
+          paddingX: 40
+        }
+      })
+    ]
+  };
+
+  const merged = {
+    canvas: {
+      ...baseDesign.canvas,
+      ...(overrides.canvas || {})
+    },
+    blocks: overrides.blocks ? overrides.blocks.map((block) => normalizeBlock(block)) : baseDesign.blocks
+  };
+
+  return merged;
+}
+
+export function normalizeBlock(block) {
+  return createBlock(block.type, block);
+}
+
+export function normalizeTemplateDesign(design) {
+  if (!design || !Array.isArray(design.blocks) || !design.blocks.length) {
+    return createDefaultTemplateDesign();
+  }
+
+  return {
+    canvas: {
+      ...defaultCanvas,
+      ...(design.canvas || {})
+    },
+    blocks: design.blocks.map((block) => normalizeBlock(block))
+  };
 }
 
 function getTokenMap(company = {}) {
@@ -128,45 +297,207 @@ function applyTokens(source, company) {
   });
 }
 
-export function getBuilderActionMarkup(actionId, selectedText = "") {
-  const content = selectedText || "Write your content here";
-  const snippets = {
-    heading: `<h2 style="margin:0 0 14px; color:#102012; font-size:28px; line-height:1.1;">${content}</h2>`,
-    paragraph: `<p style="margin:0 0 16px; color:#405246; font-size:16px; line-height:1.7;">${content}</p>`,
-    bold: `<strong>${content}</strong>`,
-    button: `<a href="{{team_website}}" style="display:inline-block; padding:14px 22px; border-radius:999px; background:#32ce32; color:#051005; font-weight:700; text-decoration:none;">${selectedText || "Primary action"}</a>`,
-    divider: `<hr style="margin:24px 0; border:none; border-top:1px solid #d4ead4;" />`,
-    spacer: `<div style="height:24px; line-height:24px;">&nbsp;</div>`
-  };
-
-  return snippets[actionId] || content;
+function renderTextContent(text, company) {
+  return escapeHtml(applyTokens(text, company)).replace(/\n/g, "<br />");
 }
 
-export function getTemplateBlockMarkup(blockId) {
-  return templateBlockLibrary.find((block) => block.id === blockId)?.html || "";
+export function renderBlockHtml(block, company = {}, canvas = defaultCanvas) {
+  const styles = block.styles || {};
+  const align = styles.align || "left";
+  const wrapperPaddingTop = Number(styles.outerPaddingTop ?? styles.paddingTop ?? 0);
+  const wrapperPaddingBottom = Number(styles.outerPaddingBottom ?? styles.paddingBottom ?? 0);
+  const wrapperStyle = [
+    `padding-top:${wrapperPaddingTop}px`,
+    `padding-bottom:${wrapperPaddingBottom}px`,
+    `padding-left:${Number(styles.paddingX ?? 0)}px`,
+    `padding-right:${Number(styles.paddingX ?? 0)}px`,
+    styles.backgroundColor ? `background:${styles.backgroundColor}` : ""
+  ].filter(Boolean).join(";");
+
+  if (block.type === "image") {
+    return `<div style="${wrapperStyle}; text-align:${align};"><img src="${escapeAttribute(
+      applyTokens(block.content.src || "", company)
+    )}" alt="${escapeAttribute(block.content.alt || "")}" style="display:inline-block; width:${Number(
+      styles.width || 120
+    )}px; max-width:100%; border:0;" /></div>`;
+  }
+
+  if (block.type === "heading") {
+    return `<div style="${wrapperStyle}; text-align:${align};"><h1 style="margin:0; color:${styles.color || "#111111"}; font-size:${Number(
+      styles.fontSize || 40
+    )}px; line-height:1.12; font-weight:${Number(styles.fontWeight || 700)}; font-family:${canvas.fontFamily};">${renderTextContent(
+      block.content.text || "",
+      company
+    )}</h1></div>`;
+  }
+
+  if (block.type === "paragraph") {
+    return `<div style="${wrapperStyle}; text-align:${align};"><p style="margin:0; color:${styles.color || "#4a4a4a"}; font-size:${Number(
+      styles.fontSize || 16
+    )}px; line-height:${Number(styles.lineHeight || 1.7)}; font-weight:${Number(
+      styles.fontWeight || 400
+    )}; font-family:${canvas.fontFamily};">${renderTextContent(
+      block.content.text || "",
+      company
+    )}</p></div>`;
+  }
+
+  if (block.type === "button") {
+    return `<div style="${wrapperStyle}; text-align:${align};"><a href="${escapeAttribute(
+      applyTokens(block.content.url || "", company)
+    )}" style="display:inline-block; background:${styles.backgroundColor || "#32ce32"}; color:${styles.color || "#041004"}; border-radius:${Number(
+      styles.radius || 999
+    )}px; font-size:${Number(styles.fontSize || 15)}px; line-height:1; font-weight:${Number(
+      styles.fontWeight || 700
+    )}; text-decoration:none; padding:${Number(styles.paddingTop || 14)}px ${Number(
+      styles.paddingX || 24
+    )}px; font-family:${canvas.fontFamily};">${renderTextContent(
+      block.content.label || "Button",
+      company
+    )}</a></div>`;
+  }
+
+  if (block.type === "divider") {
+    return `<div style="${wrapperStyle};"><hr style="border:none; border-top:1px solid ${styles.color || "#d9e5d9"}; margin:0;" /></div>`;
+  }
+
+  if (block.type === "spacer") {
+    return `<div style="height:${Number(styles.height || 24)}px; line-height:${Number(
+      styles.height || 24
+    )}px;">&nbsp;</div>`;
+  }
+
+  return `<div style="${wrapperStyle};">${escapeHtml(String(block.content?.text || ""))}</div>`;
+}
+
+export function renderTemplateHtmlFromDesign(design, company = {}) {
+  const normalizedDesign = normalizeTemplateDesign(design);
+  const blocksHtml = normalizedDesign.blocks
+    .map((block) => renderBlockHtml(block, company, normalizedDesign.canvas))
+    .join("");
+
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${normalizedDesign.canvas.bodyBackground}; padding:24px 0; font-family:${normalizedDesign.canvas.fontFamily};">
+  <tr>
+    <td align="center">
+      <table role="presentation" width="${Number(normalizedDesign.canvas.width || 680)}" cellpadding="0" cellspacing="0" style="width:${Number(
+    normalizedDesign.canvas.width || 680
+  )}px; max-width:100%; background:${normalizedDesign.canvas.emailBackground}; border-radius:${Number(
+    normalizedDesign.canvas.radius || 0
+  )}px; overflow:hidden;">
+        <tr>
+          <td>${blocksHtml}</td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>`;
+}
+
+function sortTemplates(templates) {
+  return [...templates].sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function readStoredTemplates() {
+  return storageService
+    .read(STORAGE_KEYS.templates, [])
+    .map((template) => createTemplate(template));
+}
+
+function createLegacyDesignFromHtml(html = "") {
+  return {
+    canvas: { ...defaultCanvas },
+    blocks: [
+      {
+        id: createId(),
+        type: "paragraph",
+        name: "Legacy HTML",
+        content: { text: "This template was created before the visual editor. Replace it with new blocks." },
+        styles: {
+          align: "left",
+          color: "#4a4a4a",
+          fontSize: 16,
+          lineHeight: 1.7,
+          paddingTop: 24,
+          paddingBottom: 24,
+          paddingX: 32
+        }
+      },
+      {
+        id: createId(),
+        type: "paragraph",
+        name: "Legacy Source",
+        content: { text: html },
+        styles: {
+          align: "left",
+          color: "#4a4a4a",
+          fontSize: 13,
+          lineHeight: 1.6,
+          paddingTop: 0,
+          paddingBottom: 28,
+          paddingX: 32
+        }
+      }
+    ]
+  };
+}
+
+export function ensureTemplateDesign(template) {
+  return normalizeTemplateDesign(template.design || createLegacyDesignFromHtml(template.html));
+}
+
+function createTemplateFromSeed(seed) {
+  const template = createTemplate(seed);
+  const design = ensureTemplateDesign(template);
+  return {
+    ...template,
+    design,
+    html: renderTemplateHtmlFromDesign(design)
+  };
 }
 
 export const templateService = {
   async loadTemplates() {
     if (supabaseService.isReady()) {
       const records = await supabaseService.list("email_templates");
-      const templates = sortTemplates(records.map(deserializeTemplateFromApi));
+      const templates = sortTemplates(
+        records.map((record) => {
+          const template = deserializeTemplateFromApi(record);
+          const design = ensureTemplateDesign(template);
+          return {
+            ...template,
+            design,
+            html: renderTemplateHtmlFromDesign(design)
+          };
+        })
+      );
       storageService.write(STORAGE_KEYS.templates, templates);
       return templates;
     }
 
     const storedTemplates = readStoredTemplates();
     if (storedTemplates.length) {
-      return sortTemplates(storedTemplates);
+      return sortTemplates(
+        storedTemplates.map((template) => {
+          const design = ensureTemplateDesign(template);
+          return {
+            ...template,
+            design,
+            html: renderTemplateHtmlFromDesign(design)
+          };
+        })
+      );
     }
 
-    const templates = sortTemplates(seedTemplates.map((template) => createTemplate(template)));
+    const templates = sortTemplates(seedTemplates.map(createTemplateFromSeed));
     storageService.write(STORAGE_KEYS.templates, templates);
     return templates;
   },
   async saveTemplate(input) {
+    const normalizedDesign = ensureTemplateDesign(input);
     const template = createTemplate({
       ...input,
+      design: normalizedDesign,
+      html: renderTemplateHtmlFromDesign(normalizedDesign),
       updatedAt: new Date().toISOString()
     });
     const currentTemplates = readStoredTemplates();
@@ -187,23 +518,80 @@ export const templateService = {
   },
   previewTemplate(template, company) {
     const normalized = createTemplate(template);
+    const design = ensureTemplateDesign(normalized);
     return {
       subject: applyTokens(normalized.subject, company),
-      html: applyTokens(normalized.html, company),
+      html: renderTemplateHtmlFromDesign(design, company),
       tokens: getTokenMap(company)
     };
   },
   createStarterTemplate(index) {
+    const design = createDefaultTemplateDesign({
+      blocks: [
+        createBlock("image", {
+          name: "Logo",
+          styles: { align: "left", width: 118, paddingTop: 26, paddingBottom: 18, paddingX: 28 }
+        }),
+        createBlock("paragraph", {
+          name: "Eyebrow",
+          content: { text: "ATOMIC PARTNER GRID" },
+          styles: {
+            align: "center",
+            color: "#1a211a",
+            fontSize: 13,
+            fontWeight: 700,
+            paddingTop: 6,
+            paddingBottom: 12,
+            paddingX: 40
+          }
+        }),
+        createBlock("heading", {
+          name: "Headline",
+          content: { text: "Update for {{company_name}}" },
+          styles: {
+            align: "center",
+            color: "#111111",
+            fontSize: 40,
+            fontWeight: 700,
+            paddingTop: 0,
+            paddingBottom: 16,
+            paddingX: 40
+          }
+        }),
+        createBlock("paragraph", {
+          name: "Body Copy",
+          content: {
+            text: "Hi {{contact_first_name}},\n\nI wanted to share a quick update from {{team_name}} and keep our conversation moving with a package around {{ask_type}}."
+          }
+        }),
+        createBlock("button", {
+          content: { label: "Open Team Website", url: "{{team_website}}" }
+        }),
+        createBlock("paragraph", {
+          name: "Closing",
+          content: { text: "Best,\n{{team_signature}}" },
+          styles: {
+            align: "left",
+            color: "#3f4c3f",
+            fontSize: 15,
+            lineHeight: 1.7,
+            paddingTop: 0,
+            paddingBottom: 28,
+            paddingX: 40
+          }
+        })
+      ]
+    });
+
     return createTemplate({
-      name: `Custom Template ${index}`,
+      name: `Atomic Template ${index}`,
       category: "Custom",
       subject: "{{team_name}} update for {{company_name}}",
-      html: `<div style="font-family: Arial, sans-serif; background:#ffffff; color:#182230; max-width:640px; margin:0 auto; padding:32px; border:1px solid #e8edf5; border-radius:20px;">
-  <p style="font-size:16px; line-height:1.7;">Hi {{contact_first_name}},</p>
-  <p style="font-size:16px; line-height:1.7;">I wanted to share a quick update from {{team_name}} and keep our conversation moving.</p>
-  <p style="font-size:16px; line-height:1.7;">We are currently progressing a package around {{ask_type}} and would love to shape it around what matters most to {{company_name}}.</p>
-  <p style="font-size:16px; line-height:1.7;">Best,<br /><strong>{{team_signature}}</strong></p>
-</div>`
+      design,
+      html: renderTemplateHtmlFromDesign(design)
     });
-  }
+  },
+  createBlock,
+  normalizeTemplateDesign,
+  renderTemplateHtmlFromDesign
 };

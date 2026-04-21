@@ -4,6 +4,7 @@ const baseTemplate = {
   category: "General",
   subject: "",
   html: "",
+  design: null,
   createdAt: "",
   updatedAt: ""
 };
@@ -18,6 +19,7 @@ export function createTemplate(input = {}) {
     category: input.category ?? "General",
     subject: input.subject ?? "",
     html: input.html ?? "",
+    design: input.design ? structuredClone(input.design) : null,
     createdAt: input.createdAt ?? input.created_at ?? now,
     updatedAt: input.updatedAt ?? input.updated_at ?? now
   };
@@ -31,7 +33,8 @@ export function serializeTemplateForApi(template) {
     name: normalized.name,
     category: normalized.category,
     subject: normalized.subject,
-    html: normalized.html
+    html: normalized.html,
+    design: normalized.design
   };
 }
 

@@ -4,6 +4,24 @@ function shiftDate(days) {
   return date.toISOString().slice(0, 10);
 }
 
+function createSeedBlock(id, type, name, content, styles) {
+  return { id, type, name, content, styles };
+}
+
+function createSeedDesign(blocks, canvas = {}) {
+  return {
+    canvas: {
+      bodyBackground: "#1c211d",
+      emailBackground: "#ffffff",
+      width: 680,
+      radius: 0,
+      fontFamily: "Arial, sans-serif",
+      ...canvas
+    },
+    blocks
+  };
+}
+
 export const seedCompanies = [
   {
     id: "c1c58a26-a3e0-4e7c-b3a6-7a92bc1f1001",
@@ -118,6 +136,113 @@ export const seedTemplates = [
     name: "Warm Introduction",
     category: "Outreach",
     subject: "{{team_name}} x {{company_name}} partnership opportunity",
+    design: createSeedDesign([
+      createSeedBlock(
+        "seed-intro-logo",
+        "image",
+        "Logo",
+        { src: "./assets/atomic-logo-green.jpeg", alt: "Atomic" },
+        { align: "left", width: 118, paddingTop: 26, paddingBottom: 18, paddingX: 28 }
+      ),
+      createSeedBlock(
+        "seed-intro-kicker",
+        "paragraph",
+        "Eyebrow",
+        { text: "PARTNERSHIP OPPORTUNITY" },
+        {
+          align: "center",
+          color: "#1a211a",
+          fontSize: 13,
+          fontWeight: 700,
+          paddingTop: 6,
+          paddingBottom: 12,
+          paddingX: 40
+        }
+      ),
+      createSeedBlock(
+        "seed-intro-heading",
+        "heading",
+        "Headline",
+        { text: "{{team_name}} x {{company_name}}" },
+        {
+          align: "center",
+          color: "#111111",
+          fontSize: 42,
+          fontWeight: 700,
+          paddingTop: 0,
+          paddingBottom: 18,
+          paddingX: 40
+        }
+      ),
+      createSeedBlock(
+        "seed-intro-body-1",
+        "paragraph",
+        "Intro Copy",
+        {
+          text: "Hi {{contact_first_name}},\n\nI am reaching out from {{team_name}} as we prepare for {{season_label}}. We think {{company_name}} could be a brilliant fit for a partnership that blends engineering visibility, student talent, and performance."
+        },
+        {
+          align: "left",
+          color: "#425066",
+          fontSize: 16,
+          lineHeight: 1.7,
+          paddingTop: 0,
+          paddingBottom: 18,
+          paddingX: 40
+        }
+      ),
+      createSeedBlock(
+        "seed-intro-body-2",
+        "paragraph",
+        "Ask Copy",
+        {
+          text: "We are currently looking for support around {{ask_type}} with a target package value of {{ask_value}}."
+        },
+        {
+          align: "left",
+          color: "#425066",
+          fontSize: 16,
+          lineHeight: 1.7,
+          paddingTop: 0,
+          paddingBottom: 18,
+          paddingX: 40
+        }
+      ),
+      createSeedBlock(
+        "seed-intro-button",
+        "button",
+        "Button",
+        { label: "Visit Team Site", url: "{{team_website}}" },
+        {
+          align: "center",
+          backgroundColor: "#32ce32",
+          color: "#041004",
+          radius: 999,
+          fontSize: 15,
+          fontWeight: 700,
+          paddingTop: 14,
+          paddingBottom: 14,
+          paddingX: 24,
+          outerPaddingTop: 8,
+          outerPaddingBottom: 24
+        }
+      ),
+      createSeedBlock(
+        "seed-intro-signoff",
+        "paragraph",
+        "Sign-Off",
+        { text: "Best,\n{{team_signature}}" },
+        {
+          align: "left",
+          color: "#425066",
+          fontSize: 15,
+          lineHeight: 1.7,
+          paddingTop: 0,
+          paddingBottom: 28,
+          paddingX: 40
+        }
+      )
+    ]),
     html: `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-family: Arial, sans-serif; background:#f5f7fb; padding:24px;">
   <tr>
     <td align="center">
@@ -153,6 +278,79 @@ export const seedTemplates = [
     name: "Follow-Up After First Contact",
     category: "Follow-Up",
     subject: "Following up from {{team_name}}",
+    design: createSeedDesign([
+      createSeedBlock(
+        "seed-follow-logo",
+        "image",
+        "Logo",
+        { src: "./assets/atomic-logo-green.jpeg", alt: "Atomic" },
+        { align: "left", width: 118, paddingTop: 26, paddingBottom: 18, paddingX: 28 }
+      ),
+      createSeedBlock(
+        "seed-follow-heading",
+        "heading",
+        "Headline",
+        { text: "Following up from {{team_name}}" },
+        {
+          align: "center",
+          color: "#111111",
+          fontSize: 40,
+          fontWeight: 700,
+          paddingTop: 12,
+          paddingBottom: 18,
+          paddingX: 40
+        }
+      ),
+      createSeedBlock(
+        "seed-follow-body-1",
+        "paragraph",
+        "Body",
+        {
+          text: "Hi {{contact_first_name}},\n\nI wanted to follow up on my previous message about a potential partnership between {{team_name}} and {{company_name}}."
+        },
+        {
+          align: "left",
+          color: "#425066",
+          fontSize: 16,
+          lineHeight: 1.7,
+          paddingTop: 0,
+          paddingBottom: 18,
+          paddingX: 40
+        }
+      ),
+      createSeedBlock(
+        "seed-follow-body-2",
+        "paragraph",
+        "Details",
+        {
+          text: "We are currently shaping a package around {{ask_type}} and would be happy to tailor the proposal so it aligns with what matters most to your team.\n\nIf helpful, I can send over our sponsor deck and suggested plan ahead of {{next_follow_up}}."
+        },
+        {
+          align: "left",
+          color: "#425066",
+          fontSize: 16,
+          lineHeight: 1.7,
+          paddingTop: 0,
+          paddingBottom: 22,
+          paddingX: 40
+        }
+      ),
+      createSeedBlock(
+        "seed-follow-signoff",
+        "paragraph",
+        "Sign-Off",
+        { text: "Best,\n{{team_signature}}" },
+        {
+          align: "left",
+          color: "#425066",
+          fontSize: 15,
+          lineHeight: 1.7,
+          paddingTop: 0,
+          paddingBottom: 28,
+          paddingX: 40
+        }
+      )
+    ]),
     html: `<div style="font-family: Arial, sans-serif; background:#ffffff; color:#182230; max-width:640px; margin:0 auto; padding:32px; border:1px solid #e8edf5; border-radius:20px;">
   <p style="font-size:16px; line-height:1.7;">Hi {{contact_first_name}},</p>
   <p style="font-size:16px; line-height:1.7;">I wanted to follow up on my previous message about a potential partnership between {{team_name}} and {{company_name}}.</p>
@@ -166,6 +364,89 @@ export const seedTemplates = [
     name: "Proposal Recap",
     category: "Proposal",
     subject: "{{team_name}} proposal recap for {{company_name}}",
+    design: createSeedDesign(
+      [
+        createSeedBlock(
+          "seed-proposal-logo",
+          "image",
+          "Logo",
+          { src: "./assets/atomic-logo-green.jpeg", alt: "Atomic" },
+          { align: "left", width: 118, paddingTop: 26, paddingBottom: 18, paddingX: 28 }
+        ),
+        createSeedBlock(
+          "seed-proposal-kicker",
+          "paragraph",
+          "Eyebrow",
+          { text: "PROPOSAL RECAP" },
+          {
+            align: "center",
+            color: "#d8ffd2",
+            fontSize: 13,
+            fontWeight: 700,
+            paddingTop: 6,
+            paddingBottom: 12,
+            paddingX: 40,
+            backgroundColor: "#0c1320"
+          }
+        ),
+        createSeedBlock(
+          "seed-proposal-heading",
+          "heading",
+          "Headline",
+          { text: "{{company_name}} x {{team_name}}" },
+          {
+            align: "center",
+            color: "#f6f8fc",
+            fontSize: 38,
+            fontWeight: 700,
+            paddingTop: 0,
+            paddingBottom: 18,
+            paddingX: 40,
+            backgroundColor: "#0c1320"
+          }
+        ),
+        createSeedBlock(
+          "seed-proposal-body-1",
+          "paragraph",
+          "Summary",
+          {
+            text: "Hi {{contact_first_name}}, thank you again for the conversation.\n\nAs discussed, our proposed package is centred on {{ask_type}} with an indicative value of {{ask_value}}."
+          },
+          {
+            align: "left",
+            color: "#f6f8fc",
+            fontSize: 16,
+            lineHeight: 1.7,
+            paddingTop: 0,
+            paddingBottom: 16,
+            paddingX: 40,
+            backgroundColor: "#0c1320"
+          }
+        ),
+        createSeedBlock(
+          "seed-proposal-body-2",
+          "paragraph",
+          "Requirements",
+          {
+            text: "From your side, we have noted the following focus areas: {{request_from_us}}.\n\nWe have logged the next internal milestone for {{proposal_date}} and can refine the deliverables further before then."
+          },
+          {
+            align: "left",
+            color: "#f6f8fc",
+            fontSize: 16,
+            lineHeight: 1.7,
+            paddingTop: 0,
+            paddingBottom: 26,
+            paddingX: 40,
+            backgroundColor: "#0c1320"
+          }
+        )
+      ],
+      {
+        bodyBackground: "#0c1320",
+        emailBackground: "#0c1320"
+      }
+    ),
     html: `<div style="font-family: Arial, sans-serif; background:#0c1320; color:#f6f8fc; max-width:680px; margin:0 auto; padding:36px; border-radius:24px;">
   <p style="margin:0 0 18px; color:#ffcc84; text-transform:uppercase; letter-spacing:0.2em; font-size:12px;">Proposal Recap</p>
   <h2 style="margin:0 0 18px; font-size:30px;">{{company_name}} x {{team_name}}</h2>

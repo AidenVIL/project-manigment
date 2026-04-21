@@ -1,31 +1,39 @@
 import { APP_CONFIG, isSupabaseConfigured } from "./config/runtime-config.js";
 import { createCompany } from "./models/company-model.js";
-import { createTemplate } from "./models/template-model.js";
 import { authService } from "./services/auth-service.js";
 import { buildCalendarEvents, buildCalendarSummary } from "./services/calendar-service.js";
 import { companyService } from "./services/company-service.js";
 import { buildDashboardSnapshot } from "./services/dashboard-service.js";
-import {
-  getBuilderActionMarkup,
-  getTemplateBlockMarkup,
-  templateService
-} from "./services/template-service.js";
+import { draftService } from "./services/draft-service.js";
+import { templateService } from "./services/template-service.js";
 import { renderCompanyModal } from "./ui/components/modal.js";
 import { renderAuthView } from "./ui/views/auth-view.js";
 import { renderCalendarView } from "./ui/views/calendar-view.js";
 import { renderCompaniesView } from "./ui/views/companies-view.js";
 import { renderDashboardView } from "./ui/views/dashboard-view.js";
-import { renderEmailStudioView } from "./ui/views/email-studio-view.js";
+import { renderTemplateEditorView } from "./ui/views/template-editor-view.js";
+import { renderEmailStudioView } from "./ui/views/template-hub-view.js";
 import { addDaysToInputDate } from "./utils/date-utils.js";
 import { escapeHtml } from "./utils/formatters.js";
 
 const root = document.querySelector("#app");
+
+const PREVIEW_COMPANY = createCompany({
+  id: "preview-company",
+  companyName: "Preview Company",
+  contactName: "Alex Partner",
+  contactEmail: "hello@example.com",
+  askType: "cash",
+  askValue: 5000,
+  nextFollowUp: new Date().toISOString().slice(0, 10)
+});
 
 const state = {
   loading: true,
   loginError: "",
   companies: [],
   templates: [],
+  drafts: [],
   filters: {
     search: "",
     status: "all"
@@ -34,16 +42,16 @@ const state = {
     open: false,
     companyId: ""
   },
-  emailStudio: {
-    selectedCompanyId: "",
-    selectedTemplateId: "",
-    subjectInput: "",
-    htmlInput: ""
-  },
+  preferredCompanyId: "",
+  editor: null,
   toast: ""
 };
 
 let toastTimer = null;
+
+function clone(value) {
+  return structuredClone(value);
+}
 
 function isLiveMode() {
   return isSupabaseConfigured();
@@ -53,20 +61,31 @@ function isPasswordGateEnabled() {
   return Boolean(APP_CONFIG.sitePassword);
 }
 
-function getSelectedCompany() {
-  return (
-    state.companies.find((company) => company.id === state.emailStudio.selectedCompanyId) ||
-    state.companies[0] ||
-    createCompany()
-  );
+function getCompanyOptions() {
+  if (!state.companies.length) {
+    return [{ id: PREVIEW_COMPANY.id, companyName: PREVIEW_COMPANY.companyName }];
+  }
+
+  return state.companies.map((company) => ({
+    id: company.id,
+    companyName: company.companyName
+  }));
 }
 
-function getSelectedTemplate() {
-  return (
-    state.templates.find((template) => template.id === state.emailStudio.selectedTemplateId) ||
-    state.templates[0] ||
-    createTemplate()
-  );
+function getPreferredCompanyId() {
+  if (state.preferredCompanyId && state.companies.some((company) => company.id === state.preferredCompanyId)) {
+    return state.preferredCompanyId;
+  }
+
+  return state.companies[0]?.id || PREVIEW_COMPANY.id;
+}
+
+function getEditorCompany(editor = state.editor) {
+  if (!editor) {
+    return PREVIEW_COMPANY;
+  }
+
+  return state.companies.find((company) => company.id === editor.companyId) || PREVIEW_COMPANY;
 }
 
 function getModalCompany() {
@@ -77,26 +96,7 @@ function getModalCompany() {
     };
   }
 
-  return (
-    state.companies.find((company) => company.id === state.modal.companyId) || createCompany()
-  );
-}
-
-function syncEditorFromSelectedTemplate() {
-  const template = getSelectedTemplate();
-  state.emailStudio.subjectInput = template.subject || "";
-  state.emailStudio.htmlInput = template.html || "";
-}
-
-function ensureSelections() {
-  if (!state.emailStudio.selectedCompanyId && state.companies[0]) {
-    state.emailStudio.selectedCompanyId = state.companies[0].id;
-  }
-
-  if (!state.emailStudio.selectedTemplateId && state.templates[0]) {
-    state.emailStudio.selectedTemplateId = state.templates[0].id;
-    syncEditorFromSelectedTemplate();
-  }
+  return state.companies.find((company) => company.id === state.modal.companyId) || createCompany();
 }
 
 function getFilteredCompanies() {
@@ -114,17 +114,6 @@ function getFilteredCompanies() {
   });
 }
 
-function buildPreview() {
-  return templateService.previewTemplate(
-    {
-      ...getSelectedTemplate(),
-      subject: state.emailStudio.subjectInput,
-      html: state.emailStudio.htmlInput
-    },
-    getSelectedCompany()
-  );
-}
-
 function showToast(message) {
   state.toast = message;
   renderApp();
@@ -136,12 +125,77 @@ function showToast(message) {
   }, 2800);
 }
 
+function createEditorState({
+  mode,
+  id,
+  templateId = "",
+  nameInput = "",
+  subjectInput = "",
+  design,
+  companyId = "",
+  sidebarTab = "layers",
+  selectedBlockId = "body",
+  device = "desktop",
+  createdAt = "",
+  lastFocusedTarget = null
+}) {
+  const companyOptions = getCompanyOptions();
+  const resolvedCompanyId =
+    companyOptions.find((option) => option.id === companyId)?.id || companyOptions[0]?.id || "";
+
+  return {
+    open: true,
+    mode,
+    sourceId: id || crypto.randomUUID(),
+    templateId,
+    nameInput,
+    subjectInput,
+    design: templateService.normalizeTemplateDesign(design),
+    selectedBlockId,
+    sidebarTab,
+    device,
+    companyId: resolvedCompanyId,
+    companyOptions,
+    createdAt,
+    lastFocusedTarget
+  };
+}
+
+function syncEditorCompanyOptions() {
+  if (!state.editor) {
+    return;
+  }
+
+  state.editor.companyOptions = getCompanyOptions();
+
+  if (!state.editor.companyOptions.some((option) => option.id === state.editor.companyId)) {
+    state.editor.companyId = state.editor.companyOptions[0]?.id || "";
+  }
+}
+
+function buildEditorPreview(editor = state.editor) {
+  if (!editor) {
+    return {
+      subject: "",
+      html: "",
+      tokens: {}
+    };
+  }
+
+  return templateService.previewTemplate(
+    {
+      subject: editor.subjectInput,
+      design: editor.design
+    },
+    getEditorCompany(editor)
+  );
+}
+
 function renderShell() {
   const filteredCompanies = getFilteredCompanies();
   const snapshot = buildDashboardSnapshot(state.companies, APP_CONFIG.fundraisingTarget);
   const events = buildCalendarEvents(state.companies);
   const summary = buildCalendarSummary(events);
-  const preview = buildPreview();
   const modeLabel = isLiveMode() ? "Live Supabase mode" : "Demo mode";
 
   return `
@@ -189,13 +243,8 @@ function renderShell() {
         })}
         ${renderCalendarView({ events, summary })}
         ${renderEmailStudioView({
-          companies: state.companies,
           templates: state.templates,
-          selectedCompanyId: state.emailStudio.selectedCompanyId,
-          selectedTemplateId: state.emailStudio.selectedTemplateId,
-          subjectInput: state.emailStudio.subjectInput,
-          htmlInput: state.emailStudio.htmlInput,
-          preview
+          drafts: state.drafts
         })}
       </main>
       ${renderCompanyModal(state.modal, getModalCompany())}
@@ -229,6 +278,14 @@ function renderApp() {
     return;
   }
 
+  if (state.editor?.open) {
+    root.innerHTML = renderTemplateEditorView({
+      editor: state.editor,
+      company: getEditorCompany(state.editor)
+    });
+    return;
+  }
+
   root.innerHTML = renderShell();
 }
 
@@ -244,7 +301,13 @@ async function loadAppData() {
 
     state.companies = companies;
     state.templates = templates;
-    ensureSelections();
+    state.drafts = draftService.loadDrafts();
+
+    if (!state.companies.some((company) => company.id === state.preferredCompanyId)) {
+      state.preferredCompanyId = state.companies[0]?.id || "";
+    }
+
+    syncEditorCompanyOptions();
     state.loading = false;
     state.loginError = "";
     renderApp();
@@ -290,10 +353,238 @@ function openCompanyModal(companyId = "") {
   renderApp();
 }
 
+function closeEditor() {
+  state.editor = null;
+  renderApp();
+}
+
 function focusEmailStudioForCompany(companyId) {
-  state.emailStudio.selectedCompanyId = companyId;
+  state.preferredCompanyId = companyId;
   renderApp();
   document.querySelector("#emails")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  showToast("Draft mode will now default to that company.");
+}
+
+function openTemplateEditor(templateId) {
+  const template = state.templates.find((item) => item.id === templateId);
+  if (!template) {
+    showToast("That template could not be found.");
+    return;
+  }
+
+  state.editor = createEditorState({
+    mode: "template",
+    id: template.id,
+    templateId: template.id,
+    nameInput: template.name,
+    subjectInput: template.subject,
+    design: template.design
+  });
+  renderApp();
+}
+
+function openDraftEditorFromTemplate(templateId) {
+  const template = state.templates.find((item) => item.id === templateId);
+  if (!template) {
+    showToast("That template could not be found.");
+    return;
+  }
+
+  const company = state.companies.find((item) => item.id === getPreferredCompanyId()) || PREVIEW_COMPANY;
+  const companyName = company.companyName || "Draft";
+
+  state.editor = createEditorState({
+    mode: "draft",
+    id: crypto.randomUUID(),
+    templateId: template.id,
+    nameInput: `${template.name} - ${companyName}`,
+    subjectInput: template.subject,
+    design: clone(template.design),
+    companyId: company.id
+  });
+  renderApp();
+}
+
+function openSavedDraft(draftId) {
+  const draft = state.drafts.find((item) => item.id === draftId);
+  if (!draft) {
+    showToast("That saved draft could not be found.");
+    return;
+  }
+
+  state.editor = createEditorState({
+    mode: "draft",
+    id: draft.id,
+    templateId: draft.templateId,
+    nameInput: draft.name,
+    subjectInput: draft.subject,
+    design: draft.design,
+    companyId: draft.companyId || getPreferredCompanyId(),
+    createdAt: draft.createdAt || "",
+    selectedBlockId: draft.selectedBlockId || "body"
+  });
+  renderApp();
+}
+
+function createNewTemplate() {
+  const starter = templateService.createStarterTemplate(state.templates.length + 1);
+
+  state.editor = createEditorState({
+    mode: "template",
+    id: starter.id,
+    templateId: starter.id,
+    nameInput: starter.name,
+    subjectInput: starter.subject,
+    design: starter.design
+  });
+  renderApp();
+}
+
+function findSelectedBlock() {
+  if (!state.editor || state.editor.selectedBlockId === "body") {
+    return null;
+  }
+
+  return (
+    state.editor.design.blocks.find((block) => block.id === state.editor.selectedBlockId) || null
+  );
+}
+
+function updateSelectedBlock(mutator) {
+  const block = findSelectedBlock();
+  if (!block) {
+    return;
+  }
+
+  mutator(block);
+}
+
+function coerceEditorValue(rawValue, inputType) {
+  if (inputType === "number") {
+    return Number(rawValue || 0);
+  }
+
+  return rawValue;
+}
+
+function rememberEditorFocus(target) {
+  if (!state.editor) {
+    return;
+  }
+
+  if (target.id === "editor-subject") {
+    state.editor.lastFocusedTarget = {
+      kind: "subject"
+    };
+    return;
+  }
+
+  if (target.id === "editor-name") {
+    state.editor.lastFocusedTarget = {
+      kind: "name"
+    };
+    return;
+  }
+
+  if (target.dataset.editorScope === "block-content") {
+    state.editor.lastFocusedTarget = {
+      kind: "block-content",
+      blockId: state.editor.selectedBlockId,
+      field: target.dataset.editorField
+    };
+  }
+}
+
+function insertTokenIntoEditor(token) {
+  if (!state.editor) {
+    return;
+  }
+
+  const target = state.editor.lastFocusedTarget;
+
+  if (target?.kind === "subject") {
+    state.editor.subjectInput = `${state.editor.subjectInput}${token}`;
+    renderApp();
+    return;
+  }
+
+  if (target?.kind === "name") {
+    state.editor.nameInput = `${state.editor.nameInput}${token}`;
+    renderApp();
+    return;
+  }
+
+  if (target?.kind === "block-content") {
+    const block = state.editor.design.blocks.find((item) => item.id === target.blockId);
+    if (block) {
+      const currentValue = String(block.content?.[target.field] || "");
+      block.content[target.field] = `${currentValue}${token}`;
+      renderApp();
+      return;
+    }
+  }
+
+  const selectedBlock = findSelectedBlock();
+  if (selectedBlock && (selectedBlock.type === "heading" || selectedBlock.type === "paragraph")) {
+    selectedBlock.content.text = `${selectedBlock.content.text || ""}${token}`;
+    renderApp();
+    return;
+  }
+
+  if (selectedBlock && selectedBlock.type === "button") {
+    selectedBlock.content.label = `${selectedBlock.content.label || ""}${token}`;
+    renderApp();
+    return;
+  }
+
+  state.editor.subjectInput = `${state.editor.subjectInput}${token}`;
+  renderApp();
+}
+
+function addBlockToEditor(type) {
+  if (!state.editor) {
+    return;
+  }
+
+  const nextBlock = templateService.createBlock(type);
+  const blocks = state.editor.design.blocks;
+  const selectedIndex = blocks.findIndex((block) => block.id === state.editor.selectedBlockId);
+  const insertIndex = selectedIndex >= 0 ? selectedIndex + 1 : blocks.length;
+
+  blocks.splice(insertIndex, 0, nextBlock);
+  state.editor.selectedBlockId = nextBlock.id;
+  state.editor.sidebarTab = "layers";
+  renderApp();
+}
+
+function moveSelectedBlock(direction) {
+  if (!state.editor || state.editor.selectedBlockId === "body") {
+    return;
+  }
+
+  const blocks = state.editor.design.blocks;
+  const currentIndex = blocks.findIndex((block) => block.id === state.editor.selectedBlockId);
+  const nextIndex = currentIndex + direction;
+
+  if (currentIndex < 0 || nextIndex < 0 || nextIndex >= blocks.length) {
+    return;
+  }
+
+  const [block] = blocks.splice(currentIndex, 1);
+  blocks.splice(nextIndex, 0, block);
+  renderApp();
+}
+
+function deleteSelectedBlock() {
+  if (!state.editor || state.editor.selectedBlockId === "body") {
+    return;
+  }
+
+  state.editor.design.blocks = state.editor.design.blocks.filter(
+    (block) => block.id !== state.editor.selectedBlockId
+  );
+  state.editor.selectedBlockId = "body";
+  renderApp();
 }
 
 async function handleLoginSubmit(form) {
@@ -324,7 +615,8 @@ async function handleCompanySubmit(form) {
   try {
     const savedCompany = await companyService.saveCompany(payload);
     state.companies = await companyService.loadCompanies();
-    state.emailStudio.selectedCompanyId = savedCompany.id;
+    state.preferredCompanyId = savedCompany.id;
+    syncEditorCompanyOptions();
     closeModal();
     showToast(`${savedCompany.companyName} saved.`);
   } catch (error) {
@@ -334,40 +626,74 @@ async function handleCompanySubmit(form) {
 }
 
 async function saveTemplateFromEditor() {
-  const selectedTemplate = getSelectedTemplate();
-  const templateName = selectedTemplate.name || `Template ${state.templates.length + 1}`;
+  if (!state.editor || state.editor.mode !== "template") {
+    return;
+  }
+
+  const existingTemplate = state.templates.find((template) => template.id === state.editor.sourceId);
+  const templateName =
+    state.editor.nameInput.trim() || existingTemplate?.name || `Atomic Template ${state.templates.length + 1}`;
 
   try {
     const savedTemplate = await templateService.saveTemplate({
-      ...selectedTemplate,
+      id: state.editor.sourceId,
       name: templateName,
-      subject: state.emailStudio.subjectInput,
-      html: state.emailStudio.htmlInput
+      category: existingTemplate?.category || "Custom",
+      subject: state.editor.subjectInput.trim() || "{{team_name}} update for {{company_name}}",
+      design: state.editor.design
     });
 
     state.templates = await templateService.loadTemplates();
-    state.emailStudio.selectedTemplateId = savedTemplate.id;
-    syncEditorFromSelectedTemplate();
+    state.editor.sourceId = savedTemplate.id;
+    state.editor.templateId = savedTemplate.id;
+    state.editor.nameInput = savedTemplate.name;
+    state.editor.subjectInput = savedTemplate.subject;
+    state.editor.design = templateService.normalizeTemplateDesign(savedTemplate.design);
     renderApp();
-    showToast(`${savedTemplate.name} saved.`);
+    showToast(`${savedTemplate.name} saved as a master template.`);
   } catch (error) {
     console.error(error);
     showToast(error.message || "Could not save template.");
   }
 }
 
-async function createNewTemplate() {
+function buildDraftPayload() {
+  const company = getEditorCompany(state.editor);
+  const existingDraft = state.drafts.find((draft) => draft.id === state.editor.sourceId);
+  const template = state.templates.find((item) => item.id === state.editor.templateId);
+
+  return {
+    id: state.editor.sourceId,
+    templateId: state.editor.templateId || template?.id || "",
+    name:
+      state.editor.nameInput.trim() ||
+      `${template?.name || "Email Draft"} - ${company.companyName || "Draft"}`,
+    subject: state.editor.subjectInput.trim() || template?.subject || "",
+    design: clone(state.editor.design),
+    companyId: company.id === PREVIEW_COMPANY.id ? "" : company.id,
+    companyName: company.companyName || "",
+    selectedBlockId: state.editor.selectedBlockId,
+    createdAt: existingDraft?.createdAt || state.editor.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+}
+
+async function saveDraftFromEditor() {
+  if (!state.editor || state.editor.mode !== "draft") {
+    return;
+  }
+
   try {
-    const template = templateService.createStarterTemplate(state.templates.length + 1);
-    const savedTemplate = await templateService.saveTemplate(template);
-    state.templates = await templateService.loadTemplates();
-    state.emailStudio.selectedTemplateId = savedTemplate.id;
-    syncEditorFromSelectedTemplate();
+    const savedDraft = draftService.saveDraft(buildDraftPayload());
+    state.drafts = draftService.loadDrafts();
+    state.editor.sourceId = savedDraft.id;
+    state.editor.createdAt = savedDraft.createdAt;
+    state.editor.nameInput = savedDraft.name;
     renderApp();
-    showToast(`${savedTemplate.name} created.`);
+    showToast(`${savedDraft.name} saved as a one-off draft.`);
   } catch (error) {
     console.error(error);
-    showToast(error.message || "Could not create template.");
+    showToast(error.message || "Could not save draft.");
   }
 }
 
@@ -381,118 +707,139 @@ async function copyTextToClipboard(text, successMessage) {
   }
 }
 
-function insertIntoTextArea(textArea, snippet) {
-  const currentValue = textArea.value;
-  const selectionStart = textArea.selectionStart ?? currentValue.length;
-  const selectionEnd = textArea.selectionEnd ?? currentValue.length;
-  const selectedText = currentValue.slice(selectionStart, selectionEnd);
-  const nextSnippet = typeof snippet === "function" ? snippet(selectedText) : snippet;
-  const nextValue =
-    currentValue.slice(0, selectionStart) +
-    nextSnippet +
-    currentValue.slice(selectionEnd);
-
-  textArea.value = nextValue;
-  state.emailStudio.htmlInput = nextValue;
-  renderApp();
-
-  const refreshed = document.querySelector("#template-html");
-  if (refreshed) {
-    const nextCursor = selectionStart + nextSnippet.length;
-    refreshed.focus();
-    refreshed.setSelectionRange(nextCursor, nextCursor);
-  }
-}
-
 root.addEventListener("click", async (event) => {
   const actionTarget = event.target.closest("[data-action]");
-  if (actionTarget) {
-    const { action, id } = actionTarget.dataset;
+  if (!actionTarget) {
+    return;
+  }
 
-    switch (action) {
-      case "open-add-company":
-        openCompanyModal();
-        break;
-      case "close-modal":
-        closeModal();
-        break;
-      case "edit-company":
-        openCompanyModal(id);
-        break;
-      case "delete-company":
-        if (!window.confirm("Delete this company record?")) {
-          return;
+  const { action, id } = actionTarget.dataset;
+
+  switch (action) {
+    case "open-add-company":
+      openCompanyModal();
+      return;
+    case "close-modal":
+      closeModal();
+      return;
+    case "edit-company":
+      openCompanyModal(id);
+      return;
+    case "delete-company":
+      if (!window.confirm("Delete this company record?")) {
+        return;
+      }
+
+      try {
+        await companyService.deleteCompany(id);
+        state.companies = await companyService.loadCompanies();
+        const updatedDrafts = draftService.loadDrafts().map((draft) =>
+          draft.companyId === id
+            ? {
+                ...draft,
+                companyId: "",
+                companyName: ""
+              }
+            : draft
+        );
+        updatedDrafts.forEach((draft) => {
+          draftService.saveDraft(draft);
+        });
+        state.drafts = draftService.loadDrafts();
+
+        if (state.preferredCompanyId === id) {
+          state.preferredCompanyId = state.companies[0]?.id || "";
         }
 
-        try {
-          await companyService.deleteCompany(id);
-          state.companies = await companyService.loadCompanies();
-          if (state.emailStudio.selectedCompanyId === id) {
-            state.emailStudio.selectedCompanyId = state.companies[0]?.id || "";
-          }
-          renderApp();
-          showToast("Company deleted.");
-        } catch (error) {
-          console.error(error);
-          showToast(error.message || "Could not delete company.");
-        }
-        break;
-      case "focus-email-company":
-        focusEmailStudioForCompany(id);
-        break;
-      case "save-template":
-        await saveTemplateFromEditor();
-        break;
-      case "new-template":
-        await createNewTemplate();
-        break;
-      case "copy-subject":
-        await copyTextToClipboard(state.emailStudio.subjectInput, "Subject copied.");
-        break;
-      case "copy-html":
-        await copyTextToClipboard(state.emailStudio.htmlInput, "HTML copied.");
-        break;
-      case "sign-out":
-        await authService.signOut();
-        state.companies = [];
-        state.templates = [];
-        state.loginError = "";
-        state.emailStudio = {
-          selectedCompanyId: "",
-          selectedTemplateId: "",
-          subjectInput: "",
-          htmlInput: ""
-        };
+        syncEditorCompanyOptions();
         renderApp();
-        break;
-      default:
-        break;
-    }
-    return;
-  }
-
-  const blockButton = event.target.closest("[data-template-block]");
-  if (blockButton) {
-    const textArea = document.querySelector("#template-html");
-    if (!textArea) {
+        showToast("Company deleted.");
+      } catch (error) {
+        console.error(error);
+        showToast(error.message || "Could not delete company.");
+      }
       return;
-    }
-
-    const markup = getTemplateBlockMarkup(blockButton.dataset.templateBlock);
-    insertIntoTextArea(textArea, `${textArea.value ? "\n\n" : ""}${markup}`);
-    return;
-  }
-
-  const toolButton = event.target.closest("[data-template-action]");
-  if (toolButton) {
-    const textArea = document.querySelector("#template-html");
-    if (!textArea) {
+    case "focus-email-company":
+      focusEmailStudioForCompany(id);
       return;
-    }
-
-    insertIntoTextArea(textArea, (selectedText) =>
-      getBuilderActionMarkup(toolButton.dataset.templateAction, selectedText)
-    );
+    case "new-template":
+      createNewTemplate();
+      return;
+    case "open-template-editor":
+      openTemplateEditor(id);
+      return;
+    case "open-draft-editor":
+      openDraftEditorFromTemplate(id);
+      return;
+    case "open-saved-draft":
+      openSavedDraft(id);
+      return;
+    case "close-editor":
+      closeEditor();
+      return;
+    case "switch-editor-tab":
+      if (state.editor) {
+        state.editor.sidebarTab = id;
+        renderApp();
+      }
+      return;
+    case "select-editor-body":
+      if (state.editor) {
+        state.editor.selectedBlockId = "body";
+        renderApp();
+      }
+      return;
+    case "select-editor-block":
+      if (state.editor) {
+        state.editor.selectedBlockId = id;
+        renderApp();
+      }
+      return;
+    case "add-editor-block":
+      addBlockToEditor(id);
+      return;
+    case "move-block-up":
+      moveSelectedBlock(-1);
+      return;
+    case "move-block-down":
+      moveSelectedBlock(1);
+      return;
+    case "delete-block":
+      deleteSelectedBlock();
+      return;
+    case "insert-token":
+      insertTokenIntoEditor(id);
+      return;
+    case "set-editor-device":
+      if (state.editor) {
+        state.editor.device = id;
+        renderApp();
+      }
+      return;
+    case "copy-editor-subject":
+      await copyTextToClipboard(buildEditorPreview().subject, "Rendered subject copied.");
+      return;
+    case "copy-editor-html":
+      await copyTextToClipboard(buildEditorPreview().html, "Rendered HTML copied.");
+      return;
+    case "save-template-editor":
+      await saveTemplateFromEditor();
+      return;
+    case "save-draft-editor":
+      await saveDraftFromEditor();
+      return;
+    case "sign-out":
+      await authService.signOut();
+      state.companies = [];
+      state.templates = [];
+      state.drafts = [];
+      state.loginError = "";
+      state.preferredCompanyId = "";
+      state.editor = null;
+      renderApp();
+      return;
+    default:
+      return;
   }
 });
 
@@ -500,16 +847,7 @@ root.addEventListener("input", (event) => {
   if (event.target.id === "company-search") {
     state.filters.search = event.target.value;
     renderApp();
-  }
-
-  if (event.target.id === "template-subject") {
-    state.emailStudio.subjectInput = event.target.value;
-    renderApp();
-  }
-
-  if (event.target.id === "template-html") {
-    state.emailStudio.htmlInput = event.target.value;
-    renderApp();
+    return;
   }
 
   if (event.target.name === "firstContacted") {
@@ -527,10 +865,54 @@ root.addEventListener("input", (event) => {
 
     followUpInput.value = addDaysToInputDate(event.target.value, 7);
     followUpInput.dataset.autoManaged = "true";
+    return;
   }
 
   if (event.target.name === "nextFollowUp") {
     event.target.dataset.autoManaged = "false";
+    return;
+  }
+
+  if (!state.editor) {
+    return;
+  }
+
+  rememberEditorFocus(event.target);
+
+  if (event.target.id === "editor-name") {
+    state.editor.nameInput = event.target.value;
+    renderApp();
+    return;
+  }
+
+  if (event.target.id === "editor-subject") {
+    state.editor.subjectInput = event.target.value;
+    renderApp();
+    return;
+  }
+
+  if (event.target.dataset.editorScope === "canvas") {
+    const field = event.target.dataset.editorField;
+    state.editor.design.canvas[field] = coerceEditorValue(event.target.value, event.target.type);
+    renderApp();
+    return;
+  }
+
+  if (event.target.dataset.editorScope === "block-content") {
+    const field = event.target.dataset.editorField;
+    updateSelectedBlock((block) => {
+      block.content[field] = event.target.value;
+    });
+    renderApp();
+    return;
+  }
+
+  if (event.target.dataset.editorScope === "block-style") {
+    const field = event.target.dataset.editorField;
+    updateSelectedBlock((block) => {
+      block.styles[field] = coerceEditorValue(event.target.value, event.target.type);
+    });
+    renderApp();
   }
 });
 
@@ -538,18 +920,32 @@ root.addEventListener("change", (event) => {
   if (event.target.id === "status-filter") {
     state.filters.status = event.target.value;
     renderApp();
+    return;
   }
 
-  if (event.target.id === "template-select") {
-    state.emailStudio.selectedTemplateId = event.target.value;
-    syncEditorFromSelectedTemplate();
-    renderApp();
+  if (!state.editor) {
+    return;
   }
 
-  if (event.target.id === "company-select") {
-    state.emailStudio.selectedCompanyId = event.target.value;
+  if (event.target.id === "editor-company") {
+    state.editor.companyId = event.target.value;
+    state.preferredCompanyId =
+      event.target.value === PREVIEW_COMPANY.id ? state.preferredCompanyId : event.target.value;
+    renderApp();
+    return;
+  }
+
+  if (event.target.dataset.editorScope === "block-style") {
+    const field = event.target.dataset.editorField;
+    updateSelectedBlock((block) => {
+      block.styles[field] = event.target.value;
+    });
     renderApp();
   }
+});
+
+root.addEventListener("focusin", (event) => {
+  rememberEditorFocus(event.target);
 });
 
 root.addEventListener("submit", async (event) => {
@@ -557,6 +953,7 @@ root.addEventListener("submit", async (event) => {
 
   if (event.target.id === "login-form") {
     await handleLoginSubmit(event.target);
+    return;
   }
 
   if (event.target.id === "company-form") {
@@ -567,6 +964,11 @@ root.addEventListener("submit", async (event) => {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && state.modal.open) {
     closeModal();
+    return;
+  }
+
+  if (event.key === "Escape" && state.editor?.open) {
+    closeEditor();
   }
 });
 
