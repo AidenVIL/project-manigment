@@ -1,0 +1,9 @@
+{
+  "name": "velocity-apex-sponsor-portal",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/render-build.mjs"
+  }
+}

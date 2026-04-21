@@ -1,0 +1,348 @@
+SPONSOR COMMAND CENTRE - DUMMY PROOF SETUP GUIDE
+================================================
+
+This file is the exact order to follow to get the site working.
+
+Project folder:
+C:\Users\zpu1t\Documents\project manigment
+
+
+PART 1 - WHAT THIS WEBSITE USES
+===============================
+
+The website needs 2 outside services:
+
+1. Supabase
+   This stores the company data and email templates.
+
+2. Render
+   This hosts the website online so you and your teammates can use it.
+
+
+PART 2 - BEFORE YOU START
+=========================
+
+You need:
+
+1. A Supabase account
+2. A Render account
+3. A GitHub account
+4. This project uploaded to a GitHub repository
+
+Important:
+Render normally deploys from GitHub, so if the project is only on your computer, put it on GitHub first.
+
+
+PART 3 - PUT THE PROJECT ON GITHUB
+==================================
+
+If the project is not already on GitHub, do this:
+
+1. Go to https://github.com
+2. Create a new repository
+3. Give it a name
+   Example: sponsor-command-centre
+4. Upload all files from this folder:
+   C:\Users\zpu1t\Documents\project manigment
+
+Make sure these files are included:
+
+- index.html
+- config.js
+- package.json
+- render.yaml
+- README.md
+- supabase\schema.sql
+- the whole src folder
+- the whole assets folder
+- the whole scripts folder
+
+
+PART 4 - CREATE THE SUPABASE PROJECT
+====================================
+
+1. Go to https://supabase.com
+2. Log in
+3. Click "New project"
+4. Pick your organisation
+5. Enter a project name
+   Example: sponsor-command-centre
+6. Create a database password
+   Save this somewhere safe
+7. Choose a region
+   Pick one close to where your team is
+8. Click create
+9. Wait for the project to finish setting up
+
+
+PART 5 - ADD THE DATABASE TABLES
+================================
+
+1. In Supabase, open your new project
+2. In the left menu, click "SQL Editor"
+3. Click "New query"
+4. Open this file on your computer:
+   C:\Users\zpu1t\Documents\project manigment\supabase\schema.sql
+5. Copy everything inside that file
+6. Paste it into the Supabase SQL editor
+7. Click "Run"
+
+What this does:
+
+- creates the companies table
+- creates the email_templates table
+- sets update timestamps
+- turns on row level security
+- allows shared Mk 1 access from the website
+
+
+PART 6 - FIND YOUR SUPABASE URL AND ANON KEY
+============================================
+
+1. In Supabase, click "Project Settings"
+2. Click "API"
+3. Find these 2 values:
+
+- Project URL
+- anon public key
+
+Keep both open because you will paste them in the next steps.
+
+
+PART 7 - TEST IT LOCALLY ON YOUR COMPUTER
+=========================================
+
+This step is optional, but smart.
+It lets you check the site before putting it online.
+
+STEP A - add the keys locally
+
+1. Open this file:
+   C:\Users\zpu1t\Documents\project manigment\config.js
+2. Find this part:
+
+   sitePassword: "changeme123",
+
+   supabase: {
+     url: "",
+     anonKey: ""
+   }
+
+3. Change the password to something your team will know
+4. Paste your real Supabase values inside the quotes
+
+It should end up looking like this:
+
+   sitePassword: "YOUR_SHARED_PASSWORD",
+
+   supabase: {
+     url: "https://YOUR-PROJECT.supabase.co",
+     anonKey: "YOUR_ANON_KEY"
+   }
+
+5. Save the file
+
+STEP B - run a simple local server
+
+Use this command in PowerShell:
+
+& "C:\Users\zpu1t\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" -m http.server 4173
+
+STEP C - open the website
+
+Open this in your browser:
+http://localhost:4173
+
+STEP D - test the basics
+
+Make sure you can:
+
+1. See the login page
+2. Unlock it with the shared password
+3. Add a company
+4. Edit a company
+5. Save an email template
+6. See follow-up dates in the calendar
+
+
+PART 8 - PUT IT ON RENDER
+=========================
+
+1. Go to https://render.com
+2. Log in
+3. Click "New +"
+4. Choose "Static Site"
+5. Connect your GitHub account if Render asks
+6. Select the GitHub repository for this project
+
+Render should detect the settings from render.yaml automatically.
+
+If Render asks for settings manually, use:
+
+- Build Command:
+  node scripts/render-build.mjs
+
+- Publish Directory:
+  dist
+
+
+PART 9 - ADD THE RENDER ENVIRONMENT VARIABLES
+==============================================
+
+In Render, add these environment variables exactly:
+
+1. PUBLIC_SUPABASE_URL
+   Value: your Supabase Project URL
+
+2. PUBLIC_SUPABASE_ANON_KEY
+   Value: your Supabase anon public key
+
+3. PUBLIC_SITE_PASSWORD
+   Value: your shared team password
+
+4. PUBLIC_TEAM_NAME
+   Value: your team name
+   Example: Velocity Apex Racing
+
+5. PUBLIC_SEASON_LABEL
+   Value: the text you want shown for the season
+   Example: 2026 Sponsorship Programme
+
+6. PUBLIC_FUNDRAISING_TARGET
+   Value: your money target as a number only
+   Example: 75000
+
+7. PUBLIC_TEAM_SIGNATURE
+   Value: the signoff that should appear in email templates
+   Example: Partnerships Team | Velocity Apex Racing
+
+8. PUBLIC_TEAM_WEBSITE
+   Value: your team website URL
+   Example: https://yourteamwebsite.com
+
+After adding these, save the settings.
+
+
+PART 10 - DEPLOY THE SITE
+=========================
+
+1. In Render, start the deploy
+2. Wait for it to finish
+3. Open the live Render URL
+4. You should now see the password page
+5. Enter the shared password you set
+
+
+PART 11 - FIRST THINGS TO DO AFTER IT GOES LIVE
+===============================================
+
+Once the site works online:
+
+1. Add your real sponsor companies
+2. Replace the demo templates with your real outreach templates
+3. Change the branding text if needed in Render environment variables
+4. Give teammates the shared password
+5. Test that a teammate can open it from another device
+
+
+PART 12 - WHERE TO EDIT THINGS LATER
+====================================
+
+If you want to change branding:
+
+- Edit config.js for local testing
+- Edit the PUBLIC_ variables in Render for the live site
+
+If you want to change the shared password:
+
+- Edit:
+  C:\Users\zpu1t\Documents\project manigment\config.js
+
+- And update:
+  PUBLIC_SITE_PASSWORD in Render
+
+If you want to change the dummy data:
+
+- Edit:
+  C:\Users\zpu1t\Documents\project manigment\src\data\mock-data.js
+
+If you want to change the email token system:
+
+- Edit:
+  C:\Users\zpu1t\Documents\project manigment\src\services\template-service.js
+
+If you want to change the dashboard calculations:
+
+- Edit:
+  C:\Users\zpu1t\Documents\project manigment\src\services\dashboard-service.js
+
+If you want to change the main app logic:
+
+- Edit:
+  C:\Users\zpu1t\Documents\project manigment\src\app.js
+
+If you want to change the styling:
+
+- Edit:
+  C:\Users\zpu1t\Documents\project manigment\src\styles\main.css
+
+
+PART 13 - IF SOMETHING DOES NOT WORK
+====================================
+
+If the site opens but the password does not work:
+
+1. Check that PUBLIC_SITE_PASSWORD is correct in Render
+2. Check that config.js has the right password for local testing
+
+If the site opens but data will not load or save:
+
+1. Check that PUBLIC_SUPABASE_URL is correct
+2. Check that PUBLIC_SUPABASE_ANON_KEY is correct
+3. Check that you ran supabase\schema.sql
+
+If the site deploys but shows old changes:
+
+1. Make sure your newest files were pushed to GitHub
+2. Redeploy in Render
+
+If the site works locally but not on Render:
+
+1. Check the Render environment variables
+2. Make sure the GitHub repo includes all project files
+3. Check that Render used:
+   node scripts/render-build.mjs
+
+If data is not saving:
+
+1. Make sure you entered the shared password
+2. Make sure the database tables were created
+3. Make sure the row level security policies were created by schema.sql
+
+
+PART 14 - SIMPLE CHECKLIST
+==========================
+
+Do these in order:
+
+1. Upload project to GitHub
+2. Create Supabase project
+3. Run supabase\schema.sql
+4. Copy Supabase URL and anon key
+5. Set the shared password in config.js
+6. Test locally with config.js
+7. Create Render static site
+8. Add all PUBLIC_ environment variables in Render
+9. Deploy
+10. Enter the shared password and test
+
+
+YOU ARE DONE WHEN:
+==================
+
+1. The site opens from a Render URL
+2. You can unlock it with the shared password
+3. You can add a company
+4. The company saves
+5. The calendar updates
+6. Templates save correctly

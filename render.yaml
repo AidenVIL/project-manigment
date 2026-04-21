@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: velocity-apex-sponsor-portal
+    runtime: static
+    plan: free
+    buildCommand: node scripts/render-build.mjs
+    staticPublishPath: ./dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
