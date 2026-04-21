@@ -143,6 +143,11 @@ function renderShell() {
     <div class="site-layout">
       <aside class="sidebar">
         <div class="sidebar-panel brand-panel">
+          <div class="brand-logo-wrap">
+            <img src="${escapeHtml(APP_CONFIG.logoPath)}" alt="${escapeHtml(
+    APP_CONFIG.teamName
+  )} logo" class="brand-logo" />
+          </div>
           <span class="eyebrow">Pit Wall Ops</span>
           <h1>${escapeHtml(APP_CONFIG.teamName)}</h1>
           <p>${escapeHtml(APP_CONFIG.seasonLabel)}</p>

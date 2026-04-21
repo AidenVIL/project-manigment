@@ -12,13 +12,20 @@ for (const entry of ["index.html", "src", "assets"]) {
 }
 
 const runtimeConfig = {
-  teamName: process.env.PUBLIC_TEAM_NAME || "Velocity Apex Racing",
-  seasonLabel: process.env.PUBLIC_SEASON_LABEL || "2026 Sponsorship Programme",
+  teamName: process.env.PUBLIC_TEAM_NAME || "Atomic",
+  seasonLabel: process.env.PUBLIC_SEASON_LABEL || "2026 Sponsor Programme",
   fundraisingTarget: Number(process.env.PUBLIC_FUNDRAISING_TARGET || 75000),
   teamSignature:
-    process.env.PUBLIC_TEAM_SIGNATURE || "Partnerships Team | Velocity Apex Racing",
+    process.env.PUBLIC_TEAM_SIGNATURE || "Partnerships Team | Atomic",
   teamWebsite: process.env.PUBLIC_TEAM_WEBSITE || "https://example-team-site.com",
   sitePassword: process.env.PUBLIC_SITE_PASSWORD || "changeme123",
+  logoPath: process.env.PUBLIC_LOGO_PATH || "./assets/atomic-logo-green.jpeg",
+  brand: {
+    primary: process.env.PUBLIC_BRAND_PRIMARY || "#32ce32",
+    secondary: process.env.PUBLIC_BRAND_SECONDARY || "#9bff5f",
+    tertiary: process.env.PUBLIC_BRAND_TERTIARY || "#d8ffd2",
+    dark: process.env.PUBLIC_BRAND_DARK || "#07110a"
+  },
   supabase: {
     url: process.env.PUBLIC_SUPABASE_URL || "",
     anonKey: process.env.PUBLIC_SUPABASE_ANON_KEY || ""

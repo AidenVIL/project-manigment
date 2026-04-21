@@ -1,15 +1,16 @@
 export const DEFAULT_CONFIG = {
-  teamName: "Velocity Apex Racing",
-  seasonLabel: "2026 Sponsorship Programme",
+  teamName: "Atomic",
+  seasonLabel: "2026 Sponsor Programme",
   fundraisingTarget: 75000,
-  teamSignature: "Partnerships Team | Velocity Apex Racing",
+  teamSignature: "Partnerships Team | Atomic",
   teamWebsite: "https://example-team-site.com",
   sitePassword: "changeme123",
+  logoPath: "./assets/atomic-logo-green.jpeg",
   brand: {
-    primary: "#ff5b3d",
-    secondary: "#ffe66d",
-    tertiary: "#7df0d2",
-    dark: "#07111d"
+    primary: "#32ce32",
+    secondary: "#9bff5f",
+    tertiary: "#d8ffd2",
+    dark: "#07110a"
   },
   supabase: {
     url: "",

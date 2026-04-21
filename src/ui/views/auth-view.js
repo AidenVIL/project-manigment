@@ -5,6 +5,9 @@ export function renderAuthView({ config, loginError }) {
     <main class="auth-page">
       <section class="auth-panel">
         <div class="auth-copy">
+          <div class="auth-logo-wrap">
+            <img src="${escapeHtml(config.logoPath)}" alt="${escapeHtml(config.teamName)} logo" class="auth-logo" />
+          </div>
           <span class="eyebrow">Teammate Access</span>
           <h1>${escapeHtml(config.teamName)}</h1>
           <p>

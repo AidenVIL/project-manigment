@@ -30,11 +30,11 @@ export function renderDashboardView({ config, snapshot }) {
   return `
     <section id="overview" class="hero-panel panel">
       <div class="hero-copy">
-        <span class="eyebrow">Sponsor Command Centre</span>
+        <span class="eyebrow">Atomic Partner Grid</span>
         <h1>${escapeHtml(config.teamName)}</h1>
         <p>
-          Track sponsor outreach, monitor follow-ups, draft polished emails, and keep the whole
-          team aligned on what has been asked, promised, and secured.
+          Run sponsor outreach, follow-up dates, email templates, and contribution tracking from
+          one place built around the Atomic identity.
         </p>
         <div class="hero-actions">
           <button type="button" class="primary-button" data-action="open-add-company">Add Company</button>
@@ -42,7 +42,7 @@ export function renderDashboardView({ config, snapshot }) {
         </div>
       </div>
       <div class="hero-art">
-        <img src="./assets/team-mark.svg" alt="${escapeHtml(config.teamName)} team mark" />
+        <img src="${escapeHtml(config.logoPath)}" alt="${escapeHtml(config.teamName)} logo" />
       </div>
       <div class="hero-callout">
         <span class="eyebrow">Season Goal</span>
