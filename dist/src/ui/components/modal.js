@@ -3,7 +3,7 @@ import {
   companyStatusOptions,
   responseStatusOptions
 } from "../../models/company-model.js";
-import { toInputDate } from "../../utils/date-utils.js";
+import { addDaysToInputDate, toInputDate } from "../../utils/date-utils.js";
 import { escapeHtml } from "../../utils/formatters.js";
 
 function renderOptions(options, selectedValue) {
@@ -21,6 +21,12 @@ function renderOptions(options, selectedValue) {
 export function renderCompanyModal(modalState, company) {
   const isOpen = modalState.open;
   const isEditing = Boolean(modalState.companyId);
+  const suggestedFollowUp = company.firstContacted
+    ? addDaysToInputDate(company.firstContacted, 7)
+    : "";
+  const followUpHint = suggestedFollowUp
+    ? `Auto-scheduled for ${suggestedFollowUp} from first contact.`
+    : "Set a first contact date to auto-schedule a follow-up one week later.";
 
   return `
     <div class="modal-backdrop ${isOpen ? "is-open" : ""}" aria-hidden="${isOpen ? "false" : "true"}">
@@ -89,11 +95,23 @@ export function renderCompanyModal(modalState, company) {
           </label>
           <label class="field">
             <span>First Contacted</span>
-            <input name="firstContacted" type="date" value="${toInputDate(company.firstContacted)}" />
+            <input
+              name="firstContacted"
+              type="date"
+              value="${toInputDate(company.firstContacted)}"
+              data-followup-source="true"
+            />
           </label>
           <label class="field">
             <span>Next Follow-Up</span>
-            <input name="nextFollowUp" type="date" value="${toInputDate(company.nextFollowUp)}" />
+            <input
+              name="nextFollowUp"
+              type="date"
+              value="${toInputDate(company.nextFollowUp)}"
+              data-followup-target="true"
+              data-auto-managed="${company.nextFollowUp ? "false" : "true"}"
+            />
+            <small class="field-hint">${followUpHint}</small>
           </label>
           <label class="field">
             <span>Proposal Date</span>

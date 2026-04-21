@@ -1,4 +1,8 @@
 import { escapeHtml } from "../../utils/formatters.js";
+import {
+  templateBlockLibrary,
+  templateBuilderActions
+} from "../../services/template-service.js";
 
 function renderOptions(items, selectedId, placeholder) {
   return [
@@ -33,6 +37,27 @@ export function renderEmailStudioView({
     )
     .join("");
 
+  const blockMarkup = templateBlockLibrary
+    .map(
+      (block) => `
+        <button type="button" class="builder-card" data-template-block="${block.id}">
+          <strong>${escapeHtml(block.name)}</strong>
+          <span>${escapeHtml(block.description)}</span>
+        </button>
+      `
+    )
+    .join("");
+
+  const actionMarkup = templateBuilderActions
+    .map(
+      (action) => `
+        <button type="button" class="tool-chip" data-template-action="${action.id}">
+          ${escapeHtml(action.label)}
+        </button>
+      `
+    )
+    .join("");
+
   return `
     <section id="emails" class="section-block">
       <div class="section-header">
@@ -44,7 +69,7 @@ export function renderEmailStudioView({
       </div>
       <div class="studio-grid">
         <div class="panel editor-panel">
-          <div class="editor-controls">
+          <div class="editor-topbar">
             <label class="field">
               <span>Template</span>
               <select id="template-select">
@@ -57,21 +82,42 @@ export function renderEmailStudioView({
                 ${renderOptions(companies, selectedCompanyId, "Choose a company")}
               </select>
             </label>
-            <label class="field">
-              <span>Subject</span>
-              <input id="template-subject" value="${escapeHtml(subjectInput)}" />
-            </label>
-            <label class="field">
-              <span>HTML Body</span>
-              <textarea id="template-html" rows="16">${escapeHtml(htmlInput)}</textarea>
-            </label>
+          </div>
+          <div class="builder-shell">
+            <aside class="builder-sidebar">
+              <div class="builder-group">
+                <span class="eyebrow">Quick Blocks</span>
+                <div class="builder-library">
+                  ${blockMarkup}
+                </div>
+              </div>
+              <div class="builder-group">
+                <span class="eyebrow">Personalisation Tokens</span>
+                <div class="token-grid token-grid--compact">${tokenMarkup}</div>
+              </div>
+            </aside>
+            <div class="builder-workspace">
+              <label class="field">
+                <span>Subject</span>
+                <input id="template-subject" value="${escapeHtml(subjectInput)}" />
+              </label>
+              <div class="builder-group">
+                <span class="eyebrow">Formatting Tools</span>
+                <div class="editor-toolbar">
+                  ${actionMarkup}
+                </div>
+              </div>
+              <label class="field">
+                <span>HTML Body</span>
+                <textarea id="template-html" rows="20">${escapeHtml(htmlInput)}</textarea>
+              </label>
+            </div>
           </div>
           <div class="editor-actions">
             <button type="button" class="primary-button" data-action="save-template">Save Template</button>
             <button type="button" class="ghost-button" data-action="copy-subject">Copy Subject</button>
             <button type="button" class="ghost-button" data-action="copy-html">Copy HTML</button>
           </div>
-          <div class="token-grid">${tokenMarkup}</div>
         </div>
         <div class="panel preview-panel">
           <div class="preview-head">

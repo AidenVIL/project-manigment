@@ -5,13 +5,18 @@ import { authService } from "./services/auth-service.js";
 import { buildCalendarEvents, buildCalendarSummary } from "./services/calendar-service.js";
 import { companyService } from "./services/company-service.js";
 import { buildDashboardSnapshot } from "./services/dashboard-service.js";
-import { templateService } from "./services/template-service.js";
+import {
+  getBuilderActionMarkup,
+  getTemplateBlockMarkup,
+  templateService
+} from "./services/template-service.js";
 import { renderCompanyModal } from "./ui/components/modal.js";
 import { renderAuthView } from "./ui/views/auth-view.js";
 import { renderCalendarView } from "./ui/views/calendar-view.js";
 import { renderCompaniesView } from "./ui/views/companies-view.js";
 import { renderDashboardView } from "./ui/views/dashboard-view.js";
 import { renderEmailStudioView } from "./ui/views/email-studio-view.js";
+import { addDaysToInputDate } from "./utils/date-utils.js";
 import { escapeHtml } from "./utils/formatters.js";
 
 const root = document.querySelector("#app");
@@ -376,72 +381,118 @@ async function copyTextToClipboard(text, successMessage) {
   }
 }
 
+function insertIntoTextArea(textArea, snippet) {
+  const currentValue = textArea.value;
+  const selectionStart = textArea.selectionStart ?? currentValue.length;
+  const selectionEnd = textArea.selectionEnd ?? currentValue.length;
+  const selectedText = currentValue.slice(selectionStart, selectionEnd);
+  const nextSnippet = typeof snippet === "function" ? snippet(selectedText) : snippet;
+  const nextValue =
+    currentValue.slice(0, selectionStart) +
+    nextSnippet +
+    currentValue.slice(selectionEnd);
+
+  textArea.value = nextValue;
+  state.emailStudio.htmlInput = nextValue;
+  renderApp();
+
+  const refreshed = document.querySelector("#template-html");
+  if (refreshed) {
+    const nextCursor = selectionStart + nextSnippet.length;
+    refreshed.focus();
+    refreshed.setSelectionRange(nextCursor, nextCursor);
+  }
+}
+
 root.addEventListener("click", async (event) => {
   const actionTarget = event.target.closest("[data-action]");
-  if (!actionTarget) {
+  if (actionTarget) {
+    const { action, id } = actionTarget.dataset;
+
+    switch (action) {
+      case "open-add-company":
+        openCompanyModal();
+        break;
+      case "close-modal":
+        closeModal();
+        break;
+      case "edit-company":
+        openCompanyModal(id);
+        break;
+      case "delete-company":
+        if (!window.confirm("Delete this company record?")) {
+          return;
+        }
+
+        try {
+          await companyService.deleteCompany(id);
+          state.companies = await companyService.loadCompanies();
+          if (state.emailStudio.selectedCompanyId === id) {
+            state.emailStudio.selectedCompanyId = state.companies[0]?.id || "";
+          }
+          renderApp();
+          showToast("Company deleted.");
+        } catch (error) {
+          console.error(error);
+          showToast(error.message || "Could not delete company.");
+        }
+        break;
+      case "focus-email-company":
+        focusEmailStudioForCompany(id);
+        break;
+      case "save-template":
+        await saveTemplateFromEditor();
+        break;
+      case "new-template":
+        await createNewTemplate();
+        break;
+      case "copy-subject":
+        await copyTextToClipboard(state.emailStudio.subjectInput, "Subject copied.");
+        break;
+      case "copy-html":
+        await copyTextToClipboard(state.emailStudio.htmlInput, "HTML copied.");
+        break;
+      case "sign-out":
+        await authService.signOut();
+        state.companies = [];
+        state.templates = [];
+        state.loginError = "";
+        state.emailStudio = {
+          selectedCompanyId: "",
+          selectedTemplateId: "",
+          subjectInput: "",
+          htmlInput: ""
+        };
+        renderApp();
+        break;
+      default:
+        break;
+    }
     return;
   }
 
-  const { action, id } = actionTarget.dataset;
+  const blockButton = event.target.closest("[data-template-block]");
+  if (blockButton) {
+    const textArea = document.querySelector("#template-html");
+    if (!textArea) {
+      return;
+    }
 
-  switch (action) {
-    case "open-add-company":
-      openCompanyModal();
-      break;
-    case "close-modal":
-      closeModal();
-      break;
-    case "edit-company":
-      openCompanyModal(id);
-      break;
-    case "delete-company":
-      if (!window.confirm("Delete this company record?")) {
-        return;
-      }
+    const markup = getTemplateBlockMarkup(blockButton.dataset.templateBlock);
+    insertIntoTextArea(textArea, `${textArea.value ? "\n\n" : ""}${markup}`);
+    return;
+  }
 
-      try {
-        await companyService.deleteCompany(id);
-        state.companies = await companyService.loadCompanies();
-        if (state.emailStudio.selectedCompanyId === id) {
-          state.emailStudio.selectedCompanyId = state.companies[0]?.id || "";
-        }
-        renderApp();
-        showToast("Company deleted.");
-      } catch (error) {
-        console.error(error);
-        showToast(error.message || "Could not delete company.");
-      }
-      break;
-    case "focus-email-company":
-      focusEmailStudioForCompany(id);
-      break;
-    case "save-template":
-      await saveTemplateFromEditor();
-      break;
-    case "new-template":
-      await createNewTemplate();
-      break;
-    case "copy-subject":
-      await copyTextToClipboard(state.emailStudio.subjectInput, "Subject copied.");
-      break;
-    case "copy-html":
-      await copyTextToClipboard(state.emailStudio.htmlInput, "HTML copied.");
-      break;
-    case "sign-out":
-      await authService.signOut();
-      state.companies = [];
-      state.templates = [];
-      state.loginError = "";
-      state.emailStudio = {
-        selectedCompanyId: "",
-        selectedTemplateId: "",
-        subjectInput: "",
-        htmlInput: ""
-      };
-      renderApp();
-      break;
-    default:
-      break;
+  const toolButton = event.target.closest("[data-template-action]");
+  if (toolButton) {
+    const textArea = document.querySelector("#template-html");
+    if (!textArea) {
+      return;
+    }
+
+    insertIntoTextArea(textArea, (selectedText) =>
+      getBuilderActionMarkup(toolButton.dataset.templateAction, selectedText)
+    );
   }
 });
 
@@ -459,6 +510,27 @@ root.addEventListener("input", (event) => {
   if (event.target.id === "template-html") {
     state.emailStudio.htmlInput = event.target.value;
     renderApp();
+  }
+
+  if (event.target.name === "firstContacted") {
+    const form = event.target.closest("form");
+    const followUpInput = form?.querySelector('[name="nextFollowUp"]');
+    if (!followUpInput) {
+      return;
+    }
+
+    const shouldAutoUpdate =
+      followUpInput.dataset.autoManaged !== "false" || !followUpInput.value;
+    if (!shouldAutoUpdate) {
+      return;
+    }
+
+    followUpInput.value = addDaysToInputDate(event.target.value, 7);
+    followUpInput.dataset.autoManaged = "true";
+  }
+
+  if (event.target.name === "nextFollowUp") {
+    event.target.dataset.autoManaged = "false";
   }
 });
 

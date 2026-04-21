@@ -51,6 +51,26 @@ const baseCompany = {
   lastUpdated: ""
 };
 
+function deriveFollowUpDate(firstContacted, explicitFollowUp) {
+  const normalizedFollowUp = normalizeDate(explicitFollowUp);
+  if (normalizedFollowUp) {
+    return normalizedFollowUp;
+  }
+
+  const normalizedFirstContacted = normalizeDate(firstContacted);
+  if (!normalizedFirstContacted) {
+    return "";
+  }
+
+  const followUp = new Date(normalizedFirstContacted);
+  if (Number.isNaN(followUp.getTime())) {
+    return "";
+  }
+
+  followUp.setDate(followUp.getDate() + 7);
+  return followUp.toISOString().slice(0, 10);
+}
+
 function parseMoney(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number : 0;
@@ -62,6 +82,11 @@ function normalizeDate(value) {
 
 export function createCompany(input = {}) {
   const now = new Date().toISOString();
+  const firstContacted = normalizeDate(input.firstContacted ?? input.first_contacted);
+  const nextFollowUp = deriveFollowUpDate(
+    firstContacted,
+    input.nextFollowUp ?? input.next_follow_up
+  );
 
   return {
     ...baseCompany,
@@ -78,8 +103,8 @@ export function createCompany(input = {}) {
       input.contributionValue ?? input.contribution_value
     ),
     contributionType: input.contributionType ?? input.contribution_type ?? "",
-    firstContacted: normalizeDate(input.firstContacted ?? input.first_contacted),
-    nextFollowUp: normalizeDate(input.nextFollowUp ?? input.next_follow_up),
+    firstContacted,
+    nextFollowUp,
     proposalDate: normalizeDate(input.proposalDate ?? input.proposal_date),
     interviewDate: normalizeDate(input.interviewDate ?? input.interview_date),
     responseStatus: input.responseStatus ?? input.response_status ?? "waiting",

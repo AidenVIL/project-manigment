@@ -12,6 +12,16 @@ export function toInputDate(value) {
   return date ? date.toISOString().slice(0, 10) : "";
 }
 
+export function addDaysToInputDate(value, days) {
+  const date = toDate(value);
+  if (!date) {
+    return "";
+  }
+
+  date.setDate(date.getDate() + days);
+  return toInputDate(date);
+}
+
 export function daysUntil(value) {
   const target = toDate(value);
   if (!target) {
