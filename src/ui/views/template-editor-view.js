@@ -170,35 +170,17 @@ function renderCanvas(design, company, selectedBlockId, device) {
           style="background:${design.canvas.emailBackground}; border-radius:${Number(design.canvas.radius || 0)}px;"
         >
           <div class="canvas-block-stack">
-            ${renderDropZone(0)}
             ${design.blocks
               .map(
-                (block, index) => `
-                  <div class="canvas-block-shell">
-                    <div
-                      class="canvas-block ${selectedBlockId === block.id ? "is-selected" : ""}"
-                      data-action="select-editor-block"
-                      data-id="${block.id}"
-                    >
-                      <div class="canvas-block__toolbar">
-                        <strong>${escapeHtml(block.name || block.type)}</strong>
-                        <div class="canvas-block__toolbar-actions">
-                          <small>Drag preview to position</small>
-                          <span
-                            class="canvas-block__reorder-handle"
-                            draggable="true"
-                            data-drag-kind="existing-block"
-                            data-id="${block.id}"
-                          >
-                            Reorder
-                          </span>
-                        </div>
-                      </div>
-                      <div class="canvas-block__content" data-layout-drag-id="${block.id}">
-                        ${renderBlockHtml(block, company, design.canvas)}
-                      </div>
+                (block) => `
+                  <div
+                    class="canvas-block ${selectedBlockId === block.id ? "is-selected" : ""}"
+                    data-action="select-editor-block"
+                    data-id="${block.id}"
+                  >
+                    <div class="canvas-block__content" data-layout-drag-id="${block.id}">
+                      ${renderBlockHtml(block, company, design.canvas)}
                     </div>
-                    ${renderDropZone(index + 1)}
                   </div>
                 `
               )
