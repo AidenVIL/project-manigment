@@ -159,17 +159,33 @@ function renderBlocksPanel(editor, previewTokens) {
 }
 
 function renderCanvas(design, company, selectedBlockId, device) {
-  const width = device === "mobile" ? 390 : design.canvas.width;
+  const viewportWidth = device === "mobile" ? 390 : design.canvas.width;
+  const emailWidth = Number(design.canvas.width || 680);
 
   return `
     <div class="canvas-stage">
-      <div class="canvas-surface" style="width:${Number(width)}px; background:${design.canvas.bodyBackground};">
-        <div
-          class="canvas-email ${selectedBlockId === "body" ? "is-selected" : ""}"
-          data-action="select-editor-body"
-          style="background:${design.canvas.emailBackground}; border-radius:${Number(design.canvas.radius || 0)}px;"
+      <div class="canvas-preview-shell" style="width:${Number(viewportWidth)}px;">
+        <table
+          role="presentation"
+          width="100%"
+          cellpadding="0"
+          cellspacing="0"
+          class="canvas-render-table"
+          style="background:${design.canvas.bodyBackground}; padding:24px 0; font-family:${escapeHtml(design.canvas.fontFamily)};"
         >
-          <div class="canvas-block-stack">
+          <tr>
+            <td align="center">
+              <table
+                role="presentation"
+                width="${emailWidth}"
+                cellpadding="0"
+                cellspacing="0"
+                class="canvas-email ${selectedBlockId === "body" ? "is-selected" : ""}"
+                data-action="select-editor-body"
+                style="width:${emailWidth}px; max-width:100%; background:${design.canvas.emailBackground}; border-radius:${Number(design.canvas.radius || 0)}px; overflow:hidden;"
+              >
+                <tr>
+                  <td class="canvas-email__cell">
             ${design.blocks
               .map(
                 (block) => `
@@ -185,8 +201,12 @@ function renderCanvas(design, company, selectedBlockId, device) {
                 `
               )
               .join("")}
-          </div>
-        </div>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
       </div>
     </div>
   `;
