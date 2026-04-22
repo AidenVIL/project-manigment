@@ -5,12 +5,14 @@ import { buildCalendarEvents, buildCalendarSummary } from "./services/calendar-s
 import { companyService } from "./services/company-service.js";
 import { buildDashboardSnapshot } from "./services/dashboard-service.js";
 import { draftService } from "./services/draft-service.js";
+import { gmailService } from "./services/gmail-service.js";
 import { templateService } from "./services/template-service.js";
 import { renderCompanyModal } from "./ui/components/modal.js";
 import { renderAuthView } from "./ui/views/auth-view.js";
 import { renderCalendarView } from "./ui/views/calendar-view.js";
 import { renderCompaniesView } from "./ui/views/companies-view.js";
 import { renderDashboardView } from "./ui/views/dashboard-view.js";
+import { renderMailboxView } from "./ui/views/mailbox-view.js";
 import { renderTemplateEditorView } from "./ui/views/template-editor-view.js";
 import { renderEmailStudioView } from "./ui/views/template-hub-view.js";
 import { addDaysToInputDate } from "./utils/date-utils.js";
@@ -42,12 +44,24 @@ const state = {
     open: false,
     companyId: ""
   },
+  mailbox: {
+    loading: false,
+    connected: false,
+    connectUrl: gmailService.getConnectUrl(),
+    emailAddress: "",
+    query: "",
+    messages: [],
+    selectedMessageId: "",
+    selectedMessage: null,
+    error: ""
+  },
   preferredCompanyId: "",
   editor: null,
   toast: ""
 };
 
 let toastTimer = null;
+let shouldRestoreEditorFocus = false;
 
 function clone(value) {
   return structuredClone(value);
@@ -125,6 +139,29 @@ function showToast(message) {
   }, 2800);
 }
 
+function consumeOauthFeedback() {
+  const url = new URL(window.location.href);
+  const gmailState = url.searchParams.get("gmail");
+  const gmailError = url.searchParams.get("gmail_error");
+
+  if (!gmailState && !gmailError) {
+    return;
+  }
+
+  if (gmailState === "connected") {
+    showToast("Gmail connected.");
+  }
+
+  if (gmailError) {
+    state.mailbox.error = gmailError;
+    showToast(gmailError);
+  }
+
+  url.searchParams.delete("gmail");
+  url.searchParams.delete("gmail_error");
+  window.history.replaceState({}, "", url.toString());
+}
+
 function createEditorState({
   mode,
   id,
@@ -191,6 +228,78 @@ function buildEditorPreview(editor = state.editor) {
   );
 }
 
+function buildFocusSnapshot(target, base = {}) {
+  const snapshot = { ...base };
+
+  if (typeof target.selectionStart === "number" && typeof target.selectionEnd === "number") {
+    snapshot.selectionStart = target.selectionStart;
+    snapshot.selectionEnd = target.selectionEnd;
+  }
+
+  return snapshot;
+}
+
+function getEditorFocusSelector(target = state.editor?.lastFocusedTarget) {
+  if (!target) {
+    return "";
+  }
+
+  if (target.kind === "subject") {
+    return "#editor-subject";
+  }
+
+  if (target.kind === "name") {
+    return "#editor-name";
+  }
+
+  if (target.kind === "company") {
+    return "#editor-company";
+  }
+
+  if (target.kind === "block-content") {
+    return `[data-editor-scope="block-content"][data-editor-field="${target.field}"]`;
+  }
+
+  if (target.kind === "block-style") {
+    return `[data-editor-scope="block-style"][data-editor-field="${target.field}"]`;
+  }
+
+  if (target.kind === "canvas") {
+    return `[data-editor-scope="canvas"][data-editor-field="${target.field}"]`;
+  }
+
+  return "";
+}
+
+function restoreEditorFocus() {
+  if (!state.editor?.lastFocusedTarget) {
+    return;
+  }
+
+  const selector = getEditorFocusSelector(state.editor.lastFocusedTarget);
+  if (!selector) {
+    return;
+  }
+
+  const input = root.querySelector(selector);
+  if (!input) {
+    return;
+  }
+
+  input.focus({ preventScroll: true });
+
+  if (
+    typeof state.editor.lastFocusedTarget.selectionStart === "number" &&
+    typeof state.editor.lastFocusedTarget.selectionEnd === "number" &&
+    typeof input.setSelectionRange === "function"
+  ) {
+    input.setSelectionRange(
+      state.editor.lastFocusedTarget.selectionStart,
+      state.editor.lastFocusedTarget.selectionEnd
+    );
+  }
+}
+
 function renderShell() {
   const filteredCompanies = getFilteredCompanies();
   const snapshot = buildDashboardSnapshot(state.companies, APP_CONFIG.fundraisingTarget);
@@ -215,6 +324,7 @@ function renderShell() {
           <a href="#overview">Overview</a>
           <a href="#companies">Companies</a>
           <a href="#calendar">Calendar</a>
+          <a href="#mailbox">Mailbox</a>
           <a href="#emails">Email Studio</a>
         </nav>
         <div class="sidebar-panel status-panel">
@@ -242,6 +352,9 @@ function renderShell() {
           totalCompanies: state.companies.length
         })}
         ${renderCalendarView({ events, summary })}
+        ${renderMailboxView({
+          mailbox: state.mailbox
+        })}
         ${renderEmailStudioView({
           templates: state.templates,
           drafts: state.drafts
@@ -285,6 +398,10 @@ function renderApp() {
       company: getEditorCompany(state.editor),
       preview
     });
+    if (shouldRestoreEditorFocus) {
+      restoreEditorFocus();
+      shouldRestoreEditorFocus = false;
+    }
     return;
   }
 
@@ -310,6 +427,8 @@ async function loadAppData() {
     }
 
     syncEditorCompanyOptions();
+    consumeOauthFeedback();
+    await loadMailboxStatus();
     state.loading = false;
     state.loginError = "";
     renderApp();
@@ -331,16 +450,81 @@ async function loadAppData() {
 async function init() {
   if (isPasswordGateEnabled()) {
     state.loading = false;
-    renderApp();
+      renderApp();
 
-    if (authService.isSignedIn()) {
-      await loadAppData();
-    }
+      if (authService.isSignedIn()) {
+        await loadAppData();
+      }
 
     return;
   }
 
   await loadAppData();
+}
+
+async function loadMailboxStatus() {
+  try {
+    const status = await gmailService.loadStatus();
+    state.mailbox.connected = Boolean(status.connected);
+    state.mailbox.connectUrl = gmailService.getConnectUrl();
+    state.mailbox.emailAddress = status.emailAddress || "";
+    state.mailbox.error = status.error || "";
+
+    if (!status.connected) {
+      state.mailbox.messages = [];
+      state.mailbox.selectedMessageId = "";
+      state.mailbox.selectedMessage = null;
+      return;
+    }
+
+    await loadMailboxMessages(false);
+  } catch (error) {
+    state.mailbox.connected = false;
+    state.mailbox.error = error.message || "Could not load mailbox status.";
+  }
+}
+
+async function loadMailboxMessages(showSpinner = true) {
+  if (showSpinner) {
+    state.mailbox.loading = true;
+    renderApp();
+  }
+
+  try {
+    const messages = await gmailService.loadMessages(state.mailbox.query);
+    state.mailbox.messages = messages;
+
+    const nextSelectedId =
+      messages.find((message) => message.id === state.mailbox.selectedMessageId)?.id ||
+      messages[0]?.id ||
+      "";
+    state.mailbox.selectedMessageId = nextSelectedId;
+    state.mailbox.selectedMessage = null;
+
+    if (nextSelectedId) {
+      await openMailboxMessage(nextSelectedId, false);
+    }
+  } catch (error) {
+    state.mailbox.error = error.message || "Could not load inbox messages.";
+  } finally {
+    state.mailbox.loading = false;
+    renderApp();
+  }
+}
+
+async function openMailboxMessage(messageId, rerender = true) {
+  try {
+    state.mailbox.selectedMessageId = messageId;
+    const message = await gmailService.loadMessage(messageId);
+    state.mailbox.selectedMessage = message;
+    state.mailbox.error = "";
+  } catch (error) {
+    state.mailbox.error = error.message || "Could not open message.";
+  }
+
+  if (rerender) {
+    renderApp();
+  }
 }
 
 function closeModal() {
@@ -475,25 +659,49 @@ function rememberEditorFocus(target) {
   }
 
   if (target.id === "editor-subject") {
-    state.editor.lastFocusedTarget = {
+    state.editor.lastFocusedTarget = buildFocusSnapshot(target, {
       kind: "subject"
-    };
+    });
     return;
   }
 
   if (target.id === "editor-name") {
-    state.editor.lastFocusedTarget = {
+    state.editor.lastFocusedTarget = buildFocusSnapshot(target, {
       kind: "name"
+    });
+    return;
+  }
+
+  if (target.id === "editor-company") {
+    state.editor.lastFocusedTarget = {
+      kind: "company"
     };
     return;
   }
 
   if (target.dataset.editorScope === "block-content") {
-    state.editor.lastFocusedTarget = {
+    state.editor.lastFocusedTarget = buildFocusSnapshot(target, {
       kind: "block-content",
       blockId: state.editor.selectedBlockId,
       field: target.dataset.editorField
-    };
+    });
+    return;
+  }
+
+  if (target.dataset.editorScope === "block-style") {
+    state.editor.lastFocusedTarget = buildFocusSnapshot(target, {
+      kind: "block-style",
+      blockId: state.editor.selectedBlockId,
+      field: target.dataset.editorField
+    });
+    return;
+  }
+
+  if (target.dataset.editorScope === "canvas") {
+    state.editor.lastFocusedTarget = buildFocusSnapshot(target, {
+      kind: "canvas",
+      field: target.dataset.editorField
+    });
   }
 }
 
@@ -506,12 +714,14 @@ function insertTokenIntoEditor(token) {
 
   if (target?.kind === "subject") {
     state.editor.subjectInput = `${state.editor.subjectInput}${token}`;
+    shouldRestoreEditorFocus = true;
     renderApp();
     return;
   }
 
   if (target?.kind === "name") {
     state.editor.nameInput = `${state.editor.nameInput}${token}`;
+    shouldRestoreEditorFocus = true;
     renderApp();
     return;
   }
@@ -521,6 +731,7 @@ function insertTokenIntoEditor(token) {
     if (block) {
       const currentValue = String(block.content?.[target.field] || "");
       block.content[target.field] = `${currentValue}${token}`;
+      shouldRestoreEditorFocus = true;
       renderApp();
       return;
     }
@@ -529,17 +740,20 @@ function insertTokenIntoEditor(token) {
   const selectedBlock = findSelectedBlock();
   if (selectedBlock && (selectedBlock.type === "heading" || selectedBlock.type === "paragraph")) {
     selectedBlock.content.text = `${selectedBlock.content.text || ""}${token}`;
+    shouldRestoreEditorFocus = true;
     renderApp();
     return;
   }
 
   if (selectedBlock && selectedBlock.type === "button") {
     selectedBlock.content.label = `${selectedBlock.content.label || ""}${token}`;
+    shouldRestoreEditorFocus = true;
     renderApp();
     return;
   }
 
   state.editor.subjectInput = `${state.editor.subjectInput}${token}`;
+  shouldRestoreEditorFocus = true;
   renderApp();
 }
 
@@ -776,6 +990,30 @@ root.addEventListener("click", async (event) => {
     case "open-saved-draft":
       openSavedDraft(id);
       return;
+    case "refresh-mailbox":
+      await loadMailboxMessages();
+      return;
+    case "open-mailbox-message":
+      await openMailboxMessage(id);
+      return;
+    case "disconnect-gmail":
+      try {
+        await gmailService.disconnect();
+        state.mailbox = {
+          ...state.mailbox,
+          connected: false,
+          emailAddress: "",
+          messages: [],
+          selectedMessageId: "",
+          selectedMessage: null,
+          error: ""
+        };
+        renderApp();
+        showToast("Gmail disconnected.");
+      } catch (error) {
+        showToast(error.message || "Could not disconnect Gmail.");
+      }
+      return;
     case "close-editor":
       closeEditor();
       return;
@@ -883,12 +1121,14 @@ root.addEventListener("input", (event) => {
 
   if (event.target.id === "editor-name") {
     state.editor.nameInput = event.target.value;
+    shouldRestoreEditorFocus = true;
     renderApp();
     return;
   }
 
   if (event.target.id === "editor-subject") {
     state.editor.subjectInput = event.target.value;
+    shouldRestoreEditorFocus = true;
     renderApp();
     return;
   }
@@ -896,6 +1136,7 @@ root.addEventListener("input", (event) => {
   if (event.target.dataset.editorScope === "canvas") {
     const field = event.target.dataset.editorField;
     state.editor.design.canvas[field] = coerceEditorValue(event.target.value, event.target.type);
+    shouldRestoreEditorFocus = true;
     renderApp();
     return;
   }
@@ -905,6 +1146,7 @@ root.addEventListener("input", (event) => {
     updateSelectedBlock((block) => {
       block.content[field] = event.target.value;
     });
+    shouldRestoreEditorFocus = true;
     renderApp();
     return;
   }
@@ -914,6 +1156,7 @@ root.addEventListener("input", (event) => {
     updateSelectedBlock((block) => {
       block.styles[field] = coerceEditorValue(event.target.value, event.target.type);
     });
+    shouldRestoreEditorFocus = true;
     renderApp();
   }
 });
@@ -942,6 +1185,7 @@ root.addEventListener("change", (event) => {
     updateSelectedBlock((block) => {
       block.styles[field] = event.target.value;
     });
+    shouldRestoreEditorFocus = true;
     renderApp();
   }
 });
@@ -960,6 +1204,31 @@ root.addEventListener("submit", async (event) => {
 
   if (event.target.id === "company-form") {
     await handleCompanySubmit(event.target);
+    return;
+  }
+
+  if (event.target.id === "mailbox-search-form") {
+    const formData = new FormData(event.target);
+    state.mailbox.query = String(formData.get("query") || "");
+    await loadMailboxMessages();
+    return;
+  }
+
+  if (event.target.id === "gmail-compose-form") {
+    const formData = new FormData(event.target);
+
+    try {
+      await gmailService.sendMessage({
+        to: String(formData.get("to") || ""),
+        subject: String(formData.get("subject") || ""),
+        htmlBody: String(formData.get("htmlBody") || "")
+      });
+      event.target.reset();
+      await loadMailboxMessages(false);
+      showToast("Email sent from Gmail.");
+    } catch (error) {
+      showToast(error.message || "Could not send Gmail message.");
+    }
   }
 });
 

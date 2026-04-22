@@ -10,13 +10,17 @@ C:\Users\zpu1t\Documents\project manigment
 PART 1 - WHAT THIS WEBSITE USES
 ===============================
 
-The website needs 2 outside services:
+The website needs 3 outside services:
 
 1. Supabase
    This stores the company data and email templates.
 
 2. Render
    This hosts the website online so you and your teammates can use it.
+   It now runs as a Node web service, not a static site.
+
+3. Google Cloud / Gmail API
+   This is only needed if you want the mailbox and send-from-Gmail features.
 
 
 PART 2 - BEFORE YOU START
@@ -48,10 +52,10 @@ If the project is not already on GitHub, do this:
 Make sure these files are included:
 
 - index.html
-- config.js
 - package.json
 - render.yaml
 - README.md
+- server.mjs
 - supabase\schema.sql
 - the whole src folder
 - the whole assets folder
@@ -117,41 +121,29 @@ It lets you check the site before putting it online.
 
 STEP A - add the keys locally
 
-1. Open this file:
-   C:\Users\zpu1t\Documents\project manigment\config.js
-2. Find this part:
+1. In PowerShell, go to the project folder:
+   cd "C:\Users\zpu1t\Documents\project manigment"
 
-   sitePassword: "changeme123",
+2. Set these environment variables in the same PowerShell window:
 
-   supabase: {
-     url: "",
-     anonKey: ""
-   }
-
-3. Change the password to something your team will know
-4. Paste your real Supabase values inside the quotes
-
-It should end up looking like this:
-
-   sitePassword: "YOUR_SHARED_PASSWORD",
-
-   supabase: {
-     url: "https://YOUR-PROJECT.supabase.co",
-     anonKey: "YOUR_ANON_KEY"
-   }
-
-5. Save the file
+   $env:PUBLIC_SITE_PASSWORD="YOUR_SHARED_PASSWORD"
+   $env:PUBLIC_SUPABASE_URL="https://YOUR-PROJECT.supabase.co"
+   $env:PUBLIC_SUPABASE_ANON_KEY="YOUR_ANON_KEY"
 
 STEP B - run a simple local server
 
-Use this command in PowerShell:
+First build the site:
 
-& "C:\Users\zpu1t\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" -m http.server 4173
+& "C:\Users\zpu1t\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe" scripts\render-build.mjs
+
+Then start the local Node server:
+
+& "C:\Users\zpu1t\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe" server.mjs
 
 STEP C - open the website
 
 Open this in your browser:
-http://localhost:4173
+http://localhost:3000
 
 STEP D - test the basics
 
@@ -171,7 +163,7 @@ PART 8 - PUT IT ON RENDER
 1. Go to https://render.com
 2. Log in
 3. Click "New +"
-4. Choose "Static Site"
+4. Choose "Web Service"
 5. Connect your GitHub account if Render asks
 6. Select the GitHub repository for this project
 
@@ -179,11 +171,14 @@ Render should detect the settings from render.yaml automatically.
 
 If Render asks for settings manually, use:
 
-- Build Command:
-  node scripts/render-build.mjs
+- Runtime:
+  Node
 
-- Publish Directory:
-  dist
+- Build Command:
+  npm install && npm run build
+
+- Start Command:
+  npm start
 
 
 PART 9 - ADD THE RENDER ENVIRONMENT VARIABLES
@@ -223,6 +218,72 @@ In Render, add these environment variables exactly:
 After adding these, save the settings.
 
 
+PART 9B - GMAIL SETUP (ONLY IF YOU WANT INBOX + SEND)
+=====================================================
+
+You only need this part if you want the Gmail mailbox inside the site.
+
+STEP A - create the Google Cloud app
+
+1. Go to https://console.cloud.google.com
+2. Create a Google Cloud project
+3. Enable the Gmail API
+4. Go to "APIs & Services" then "Credentials"
+5. Create an OAuth client ID
+6. Choose "Web application"
+
+STEP B - add the redirect URL
+
+You need this exact callback URL:
+
+https://YOUR-RENDER-URL.onrender.com/auth/google/callback
+
+Example:
+https://atomic-sponsor-portal.onrender.com/auth/google/callback
+
+Save the client after adding the redirect URL.
+
+STEP C - copy the Google values
+
+Copy these 2 values:
+
+1. Client ID
+2. Client Secret
+
+STEP D - add these to Render
+
+In Render, add these environment variables:
+
+1. GOOGLE_CLIENT_ID
+   Value: your Google OAuth Client ID
+
+2. GOOGLE_CLIENT_SECRET
+   Value: your Google OAuth Client Secret
+
+3. GOOGLE_REDIRECT_URI
+   Value: your exact callback URL
+   Example:
+   https://YOUR-RENDER-URL.onrender.com/auth/google/callback
+
+4. GMAIL_ACCOUNT_EMAIL
+   Value: your team Gmail address
+   Example:
+   atomicracingteam@gmail.com
+
+Important:
+GMAIL_ACCOUNT_EMAIL is used to stop the wrong Google account being connected by mistake.
+
+STEP E - redeploy
+
+After saving those variables in Render:
+
+1. Redeploy the service
+2. Open the website
+3. Go to the Mailbox section
+4. Click "Connect Gmail"
+5. Sign in with the team Gmail account
+
+
 PART 10 - DEPLOY THE SITE
 =========================
 
@@ -250,16 +311,13 @@ PART 12 - WHERE TO EDIT THINGS LATER
 
 If you want to change branding:
 
-- Edit config.js for local testing
+- Change the $env:PUBLIC_... values for local testing
 - Edit the PUBLIC_ variables in Render for the live site
 
 If you want to change the shared password:
 
-- Edit:
-  C:\Users\zpu1t\Documents\project manigment\config.js
-
-- And update:
-  PUBLIC_SITE_PASSWORD in Render
+- Update $env:PUBLIC_SITE_PASSWORD locally
+- And update PUBLIC_SITE_PASSWORD in Render
 
 If you want to change the dummy data:
 
@@ -280,6 +338,11 @@ If you want to change the main app logic:
 
 - Edit:
   C:\Users\zpu1t\Documents\project manigment\src\app.js
+
+If you want to change the Gmail backend:
+
+- Edit:
+  C:\Users\zpu1t\Documents\project manigment\server.mjs
 
 If you want to change the styling:
 
@@ -310,8 +373,20 @@ If the site works locally but not on Render:
 
 1. Check the Render environment variables
 2. Make sure the GitHub repo includes all project files
-3. Check that Render used:
-   node scripts/render-build.mjs
+3. Check that Render is using a Web Service, not a Static Site
+4. Check that Render used:
+   npm install && npm run build
+5. Check that the start command is:
+   npm start
+
+If Gmail will not connect:
+
+1. Check GOOGLE_CLIENT_ID
+2. Check GOOGLE_CLIENT_SECRET
+3. Check GOOGLE_REDIRECT_URI
+4. Make sure the same callback URL is also added in Google Cloud
+5. Make sure you signed in with the team Gmail account
+6. Check GMAIL_ACCOUNT_EMAIL if you set one
 
 If data is not saving:
 
@@ -331,10 +406,11 @@ Do these in order:
 4. Copy Supabase URL and anon key
 5. Set the shared password in config.js
 6. Test locally with config.js
-7. Create Render static site
+7. Create Render web service
 8. Add all PUBLIC_ environment variables in Render
 9. Deploy
 10. Enter the shared password and test
+11. Optional: add Gmail OAuth variables and connect the team inbox
 
 
 YOU ARE DONE WHEN:
