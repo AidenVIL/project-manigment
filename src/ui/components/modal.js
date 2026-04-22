@@ -22,6 +22,8 @@ export function renderCompanyModal(modalState, company) {
   const isOpen = modalState.open;
   const isEditing = Boolean(modalState.companyId);
   const isSaving = Boolean(modalState.saving);
+  const showProposalDate = Boolean(company.hasProposalDate || company.proposalDate);
+  const showInterviewDate = Boolean(company.hasInterviewDate || company.interviewDate);
   const suggestedFollowUp = company.firstContacted
     ? addDaysToInputDate(company.firstContacted, 7)
     : "";
@@ -56,10 +58,6 @@ export function renderCompanyModal(modalState, company) {
           <label class="field">
             <span>Contact Email</span>
             <input name="contactEmail" type="email" value="${escapeHtml(company.contactEmail || "")}" />
-          </label>
-          <label class="field">
-            <span>Sector</span>
-            <input name="sector" value="${escapeHtml(company.sector || "")}" />
           </label>
           <label class="field">
             <span>Status</span>
@@ -114,14 +112,48 @@ export function renderCompanyModal(modalState, company) {
             />
             <small class="field-hint">${followUpHint}</small>
           </label>
-          <label class="field">
-            <span>Proposal Date</span>
-            <input name="proposalDate" type="date" value="${toInputDate(company.proposalDate)}" />
-          </label>
-          <label class="field">
-            <span>Interview Date</span>
-            <input name="interviewDate" type="date" value="${toInputDate(company.interviewDate)}" />
-          </label>
+          <div class="field field--checkbox">
+            <span>Proposal Needed</span>
+            <label class="toggle-row">
+              <input
+                name="hasProposalDate"
+                type="checkbox"
+                ${showProposalDate ? "checked" : ""}
+              />
+              <strong>Track a proposal date</strong>
+            </label>
+          </div>
+          <div class="field field--checkbox">
+            <span>Interview Needed</span>
+            <label class="toggle-row">
+              <input
+                name="hasInterviewDate"
+                type="checkbox"
+                ${showInterviewDate ? "checked" : ""}
+              />
+              <strong>Track an interview date</strong>
+            </label>
+          </div>
+          ${
+            showProposalDate
+              ? `
+                <label class="field">
+                  <span>Proposal Date</span>
+                  <input name="proposalDate" type="date" value="${toInputDate(company.proposalDate)}" />
+                </label>
+              `
+              : `<div class="field field--ghost"></div>`
+          }
+          ${
+            showInterviewDate
+              ? `
+                <label class="field">
+                  <span>Interview Date</span>
+                  <input name="interviewDate" type="date" value="${toInputDate(company.interviewDate)}" />
+                </label>
+              `
+              : `<div class="field field--ghost"></div>`
+          }
           <label class="field field--span-2">
             <span>What They Want From Us</span>
             <textarea name="requestFromUs" rows="3">${escapeHtml(company.requestFromUs || "")}</textarea>

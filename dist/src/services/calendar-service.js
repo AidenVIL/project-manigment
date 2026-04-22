@@ -53,3 +53,78 @@ export function buildCalendarSummary(events) {
     interviews: events.filter((event) => event.type === "Interview").length
   };
 }
+
+function toDateKey(value) {
+  return String(value || "").slice(0, 10);
+}
+
+function startOfWeek(date) {
+  const result = new Date(date);
+  const day = result.getDay();
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  result.setDate(result.getDate() + mondayOffset);
+  result.setHours(0, 0, 0, 0);
+  return result;
+}
+
+function endOfWeek(date) {
+  const result = startOfWeek(date);
+  result.setDate(result.getDate() + 6);
+  return result;
+}
+
+export function buildCalendarMonthView(events, referenceDate = new Date()) {
+  const today = new Date(referenceDate);
+  today.setHours(0, 0, 0, 0);
+
+  const activeEvent =
+    events.find((event) => event.daysAway !== null && event.daysAway >= 0) || events[0] || null;
+  const monthAnchor = activeEvent ? new Date(activeEvent.date) : today;
+  monthAnchor.setDate(1);
+  monthAnchor.setHours(0, 0, 0, 0);
+
+  const monthStart = startOfWeek(monthAnchor);
+  const monthEnd = endOfWeek(new Date(monthAnchor.getFullYear(), monthAnchor.getMonth() + 1, 0));
+  const eventsByDate = events.reduce((accumulator, event) => {
+    const key = toDateKey(event.date);
+    accumulator[key] = [...(accumulator[key] || []), event];
+    return accumulator;
+  }, {});
+
+  const weeks = [];
+  const cursor = new Date(monthStart);
+
+  while (cursor <= monthEnd) {
+    const week = [];
+
+    for (let index = 0; index < 7; index += 1) {
+      const key = toDateKey(cursor.toISOString());
+      week.push({
+        key,
+        dayNumber: cursor.getDate(),
+        isCurrentMonth: cursor.getMonth() === monthAnchor.getMonth(),
+        isToday: key === toDateKey(today.toISOString()),
+        events: eventsByDate[key] || []
+      });
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    weeks.push(week);
+  }
+
+  return {
+    monthLabel: new Intl.DateTimeFormat("en-GB", {
+      month: "long",
+      year: "numeric"
+    }).format(monthAnchor),
+    dayLabels: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+    weeks,
+    agenda: events.filter((event) => {
+      const eventDate = new Date(event.date);
+      return (
+        eventDate.getFullYear() === monthAnchor.getFullYear() &&
+        eventDate.getMonth() === monthAnchor.getMonth()
+      );
+    })
+  };
+}

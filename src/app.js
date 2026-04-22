@@ -1,12 +1,17 @@
 import { APP_CONFIG, isSupabaseConfigured } from "./config/runtime-config.js";
 import { createCompany } from "./models/company-model.js";
 import { authService } from "./services/auth-service.js";
-import { buildCalendarEvents, buildCalendarSummary } from "./services/calendar-service.js";
+import {
+  buildCalendarEvents,
+  buildCalendarMonthView,
+  buildCalendarSummary
+} from "./services/calendar-service.js";
 import { companyService } from "./services/company-service.js";
 import { buildDashboardSnapshot } from "./services/dashboard-service.js";
 import { draftService } from "./services/draft-service.js";
 import { gmailService } from "./services/gmail-service.js";
 import { templateService } from "./services/template-service.js";
+import { analyzeEmailWriting } from "./services/writing-coach-service.js";
 import { renderCompanyModal } from "./ui/components/modal.js";
 import { renderAuthView } from "./ui/views/auth-view.js";
 import { renderCalendarView } from "./ui/views/calendar-view.js";
@@ -243,17 +248,27 @@ function buildEditorPreview(editor = state.editor) {
     return {
       subject: "",
       html: "",
-      tokens: {}
+      tokens: {},
+      writing: analyzeEmailWriting()
     };
   }
 
-  return templateService.previewTemplate(
+  const preview = templateService.previewTemplate(
     {
       subject: editor.subjectInput,
       design: editor.design
     },
     getEditorCompany(editor)
   );
+
+  return {
+    ...preview,
+    writing: analyzeEmailWriting({
+      subject: preview.subject,
+      design: editor.design,
+      tokens: preview.tokens
+    })
+  };
 }
 
 function buildTemplateNameFromFilename(filename = "") {
@@ -473,6 +488,7 @@ function renderShell() {
   const snapshot = buildDashboardSnapshot(state.companies, APP_CONFIG.fundraisingTarget);
   const events = buildCalendarEvents(state.companies);
   const summary = buildCalendarSummary(events);
+  const calendarMonth = buildCalendarMonthView(events);
   const modeLabel = isLiveMode() ? "Live Supabase mode" : "Demo mode";
 
   return `
@@ -519,7 +535,7 @@ function renderShell() {
           companies: filteredCompanies,
           totalCompanies: state.companies.length
         })}
-        ${renderCalendarView({ events, summary })}
+        ${renderCalendarView({ events, summary, calendarMonth })}
         ${renderMailboxView({
           mailbox: state.mailbox
         })}
@@ -718,7 +734,11 @@ function openCompanyModal(companyId = "") {
 
   state.modal.open = true;
   state.modal.companyId = companyId;
-  state.modal.draft = clone(existingCompany);
+  state.modal.draft = {
+    ...clone(existingCompany),
+    hasProposalDate: Boolean(existingCompany.proposalDate),
+    hasInterviewDate: Boolean(existingCompany.interviewDate)
+  };
   state.modal.saving = false;
   state.modal.error = "";
   renderApp();
@@ -1141,6 +1161,19 @@ async function handleLoginSubmit(form) {
 async function handleCompanySubmit(form) {
   const formData = new FormData(form);
   const payload = Object.fromEntries(formData.entries());
+  const hasProposalDate = formData.has("hasProposalDate");
+  const hasInterviewDate = formData.has("hasInterviewDate");
+  delete payload.hasProposalDate;
+  delete payload.hasInterviewDate;
+
+  if (!hasProposalDate) {
+    payload.proposalDate = "";
+  }
+
+  if (!hasInterviewDate) {
+    payload.interviewDate = "";
+  }
+
   payload.askValue = Number(payload.askValue || 0);
   payload.contributionValue = Number(payload.contributionValue || 0);
   payload.lastUpdated = new Date().toISOString();
@@ -1461,6 +1494,17 @@ root.addEventListener("input", (event) => {
   if (event.target.name === "firstContacted") {
     const form = event.target.closest("form");
     const followUpInput = form?.querySelector('[name="nextFollowUp"]');
+    const nextFollowUpValue = addDaysToInputDate(event.target.value, 7);
+
+    state.modal.draft = {
+      ...state.modal.draft,
+      firstContacted: event.target.value,
+      nextFollowUp:
+        followUpInput?.dataset.autoManaged !== "false" || !followUpInput?.value
+          ? nextFollowUpValue
+          : state.modal.draft.nextFollowUp
+    };
+
     if (!followUpInput) {
       return;
     }
@@ -1471,17 +1515,41 @@ root.addEventListener("input", (event) => {
       return;
     }
 
-    followUpInput.value = addDaysToInputDate(event.target.value, 7);
+    followUpInput.value = nextFollowUpValue;
     followUpInput.dataset.autoManaged = "true";
     return;
   }
 
   if (event.target.name === "nextFollowUp") {
     event.target.dataset.autoManaged = "false";
+    state.modal.draft = {
+      ...state.modal.draft,
+      nextFollowUp: event.target.value
+    };
   }
 
   if (event.target.closest("#company-form")) {
-    const { name, value, type } = event.target;
+    const { name, value, type, checked } = event.target;
+    if (name === "hasProposalDate") {
+      state.modal.draft = {
+        ...state.modal.draft,
+        hasProposalDate: checked,
+        proposalDate: checked ? state.modal.draft.proposalDate || "" : ""
+      };
+      renderApp();
+      return;
+    }
+
+    if (name === "hasInterviewDate") {
+      state.modal.draft = {
+        ...state.modal.draft,
+        hasInterviewDate: checked,
+        interviewDate: checked ? state.modal.draft.interviewDate || "" : ""
+      };
+      renderApp();
+      return;
+    }
+
     if (name) {
       state.modal.draft = {
         ...state.modal.draft,
