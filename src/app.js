@@ -69,6 +69,7 @@ let currentEditorDrag = null;
 let activeDropZone = null;
 let currentLayoutDrag = null;
 let pendingFocusRestoreFrame = null;
+let isRestoringEditorFocus = false;
 
 function clone(value) {
   return structuredClone(value);
@@ -400,7 +401,8 @@ function restoreEditorFocus() {
     return;
   }
 
-  const selector = getEditorFocusSelector(state.editor.lastFocusedTarget);
+  const focusTarget = { ...state.editor.lastFocusedTarget };
+  const selector = getEditorFocusSelector(focusTarget);
   if (!selector) {
     return;
   }
@@ -410,26 +412,32 @@ function restoreEditorFocus() {
     return;
   }
 
-  input.focus({ preventScroll: true });
+  isRestoringEditorFocus = true;
 
-  if (
-    typeof state.editor.lastFocusedTarget.selectionStart === "number" &&
-    typeof state.editor.lastFocusedTarget.selectionEnd === "number" &&
-    typeof input.setSelectionRange === "function"
-  ) {
-    input.setSelectionRange(
-      state.editor.lastFocusedTarget.selectionStart,
-      state.editor.lastFocusedTarget.selectionEnd,
-      state.editor.lastFocusedTarget.selectionDirection || "none"
-    );
-  }
+  try {
+    input.focus({ preventScroll: true });
 
-  if (typeof state.editor.lastFocusedTarget.scrollTop === "number") {
-    input.scrollTop = state.editor.lastFocusedTarget.scrollTop;
-  }
+    if (
+      typeof focusTarget.selectionStart === "number" &&
+      typeof focusTarget.selectionEnd === "number" &&
+      typeof input.setSelectionRange === "function"
+    ) {
+      input.setSelectionRange(
+        focusTarget.selectionStart,
+        focusTarget.selectionEnd,
+        focusTarget.selectionDirection || "none"
+      );
+    }
 
-  if (typeof state.editor.lastFocusedTarget.scrollLeft === "number") {
-    input.scrollLeft = state.editor.lastFocusedTarget.scrollLeft;
+    if (typeof focusTarget.scrollTop === "number") {
+      input.scrollTop = focusTarget.scrollTop;
+    }
+
+    if (typeof focusTarget.scrollLeft === "number") {
+      input.scrollLeft = focusTarget.scrollLeft;
+    }
+  } finally {
+    isRestoringEditorFocus = false;
   }
 }
 
@@ -1651,6 +1659,10 @@ root.addEventListener("dragend", () => {
 });
 
 root.addEventListener("focusin", (event) => {
+  if (isRestoringEditorFocus) {
+    return;
+  }
+
   rememberEditorFocus(event.target);
 });
 
