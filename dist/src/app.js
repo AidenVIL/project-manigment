@@ -1270,6 +1270,20 @@ root.addEventListener("click", async (event) => {
     case "open-add-company":
       openCompanyModal();
       return;
+    case "save-company": {
+      const form = root.querySelector("#company-form");
+      if (!form || state.modal.saving) {
+        return;
+      }
+
+      if (!form.reportValidity()) {
+        showToast("Please fill in the required company fields.");
+        return;
+      }
+
+      await handleCompanySubmit(form);
+      return;
+    }
     case "close-modal":
       closeModal();
       return;
