@@ -254,6 +254,13 @@ function createBlock(type, overrides = {}) {
   };
 }
 
+function duplicateBlock(block) {
+  const copy = createBlock(block.type, clone(block));
+  copy.id = createId();
+  copy.name = `${block.name || block.type} Copy`;
+  return copy;
+}
+
 export function createDefaultTemplateDesign(overrides = {}) {
   const baseDesign = {
     canvas: { ...defaultCanvas },
@@ -392,6 +399,15 @@ function readPixelValue(value, fallback) {
   return Number.isFinite(number) ? number : fallback;
 }
 
+function readNumericValue(value, fallback) {
+  if (value === undefined || value === null || value === "") {
+    return fallback;
+  }
+
+  const number = Number(String(value).replace(/[^\d.-]/g, ""));
+  return Number.isFinite(number) ? number : fallback;
+}
+
 function normalizeImportedAlign(value = "") {
   const normalized = String(value || "").trim().toLowerCase();
   return ["left", "center", "right"].includes(normalized) ? normalized : "left";
@@ -408,12 +424,19 @@ function normalizeImportedText(text = "") {
     .trim();
 }
 
+function splitImportedText(text = "") {
+  return normalizeImportedText(text)
+    .split(/\n{2,}/)
+    .map((part) => normalizeImportedText(part))
+    .filter(Boolean);
+}
+
 function getElementText(element) {
   if (!element) {
     return "";
   }
 
-  const text = element.tagName === "LI" ? `• ${element.textContent || ""}` : element.textContent || "";
+  const text = element.tagName === "LI" ? `- ${element.textContent || ""}` : element.textContent || "";
   return normalizeImportedText(text);
 }
 
@@ -443,6 +466,30 @@ function getImportedPaddingBottom(styles, fallback = 18) {
   return readPixelValue(readStyleValue(styles, ["padding-bottom", "padding"]), fallback);
 }
 
+function buildImportedContext(element, inheritedContext = {}) {
+  const styles = parseStyleAttribute(element?.getAttribute?.("style"));
+
+  return {
+    align: getImportedAlign(element, styles) || inheritedContext.align || "left",
+    color: getImportedTextColor(styles, inheritedContext.color || ""),
+    backgroundColor: getImportedBackground(styles, inheritedContext.backgroundColor || ""),
+    fontSize: readPixelValue(readStyleValue(styles, ["font-size"]), inheritedContext.fontSize),
+    fontWeight: readNumericValue(readStyleValue(styles, ["font-weight"]), inheritedContext.fontWeight),
+    lineHeight:
+      Number(readStyleValue(styles, ["line-height"], inheritedContext.lineHeight || "")) ||
+      inheritedContext.lineHeight ||
+      1.7,
+    paddingX: getImportedPaddingX(styles, inheritedContext.paddingX ?? 40),
+    paddingTop: getImportedPaddingTop(styles, inheritedContext.paddingTop ?? 0),
+    paddingBottom: getImportedPaddingBottom(styles, inheritedContext.paddingBottom ?? 18),
+    width: readPixelValue(
+      element?.getAttribute?.("width") || readStyleValue(styles, ["width"]),
+      inheritedContext.width
+    ),
+    radius: readPixelValue(readStyleValue(styles, ["border-radius"]), inheritedContext.radius)
+  };
+}
+
 function sanitizeImportedUrl(url = "") {
   const trimmed = String(url || "").trim();
   return trimmed || "";
@@ -461,7 +508,7 @@ function buildImportedBlockName(type, index) {
   return `${labels[type] || "Block"} ${index}`;
 }
 
-function createImportedHeadingBlock(element, index) {
+function createImportedHeadingBlock(element, index, context = {}) {
   const styles = parseStyleAttribute(element.getAttribute("style"));
   const tagName = element.tagName.toUpperCase();
   const sizeMap = {
@@ -482,18 +529,22 @@ function createImportedHeadingBlock(element, index) {
     name: buildImportedBlockName("heading", index),
     content: { text },
     styles: {
-      align: getImportedAlign(element, styles),
-      color: getImportedTextColor(styles, "#111111"),
-      fontSize: readPixelValue(readStyleValue(styles, ["font-size"]), sizeMap[tagName] || 32),
-      fontWeight: readPixelValue(readStyleValue(styles, ["font-weight"]), 700),
-      paddingTop: getImportedPaddingTop(styles, 12),
-      paddingBottom: getImportedPaddingBottom(styles, 14),
-      paddingX: getImportedPaddingX(styles, 40)
+      align: getImportedAlign(element, styles) || context.align || "center",
+      color: getImportedTextColor(styles, context.color || "#111111"),
+      fontSize: readPixelValue(
+        readStyleValue(styles, ["font-size"]),
+        context.fontSize || sizeMap[tagName] || 32
+      ),
+      fontWeight: readNumericValue(readStyleValue(styles, ["font-weight"]), context.fontWeight || 700),
+      paddingTop: getImportedPaddingTop(styles, context.paddingTop ?? 12),
+      paddingBottom: getImportedPaddingBottom(styles, context.paddingBottom ?? 14),
+      paddingX: getImportedPaddingX(styles, context.paddingX ?? 40),
+      backgroundColor: getImportedBackground(styles, context.backgroundColor || "")
     }
   });
 }
 
-function createImportedParagraphBlock(element, index) {
+function createImportedParagraphBlock(element, index, context = {}) {
   const styles = parseStyleAttribute(element.getAttribute("style"));
   const text = getElementText(element);
 
@@ -505,19 +556,23 @@ function createImportedParagraphBlock(element, index) {
     name: buildImportedBlockName("paragraph", index),
     content: { text },
     styles: {
-      align: getImportedAlign(element, styles),
-      color: getImportedTextColor(styles, "#4a4a4a"),
-      fontSize: readPixelValue(readStyleValue(styles, ["font-size"]), 16),
-      fontWeight: readPixelValue(readStyleValue(styles, ["font-weight"]), 400),
-      lineHeight: Number(readStyleValue(styles, ["line-height"], 1.7)) || 1.7,
-      paddingTop: getImportedPaddingTop(styles, 4),
-      paddingBottom: getImportedPaddingBottom(styles, 18),
-      paddingX: getImportedPaddingX(styles, 40)
+      align: getImportedAlign(element, styles) || context.align || "left",
+      color: getImportedTextColor(styles, context.color || "#4a4a4a"),
+      fontSize: readPixelValue(readStyleValue(styles, ["font-size"]), context.fontSize || 16),
+      fontWeight: readNumericValue(readStyleValue(styles, ["font-weight"]), context.fontWeight || 400),
+      lineHeight:
+        Number(readStyleValue(styles, ["line-height"], context.lineHeight || 1.7)) ||
+        context.lineHeight ||
+        1.7,
+      paddingTop: getImportedPaddingTop(styles, context.paddingTop ?? 4),
+      paddingBottom: getImportedPaddingBottom(styles, context.paddingBottom ?? 18),
+      paddingX: getImportedPaddingX(styles, context.paddingX ?? 40),
+      backgroundColor: getImportedBackground(styles, context.backgroundColor || "")
     }
   });
 }
 
-function createImportedImageBlock(element, index) {
+function createImportedImageBlock(element, index, context = {}) {
   const styles = parseStyleAttribute(element.getAttribute("style"));
   const src = sanitizeImportedUrl(element.getAttribute("src") || element.getAttribute("data-src"));
 
@@ -532,12 +587,15 @@ function createImportedImageBlock(element, index) {
       alt: element.getAttribute("alt") || ""
     },
     styles: {
-      align: getImportedAlign(element, styles),
-      width: readPixelValue(element.getAttribute("width") || readStyleValue(styles, ["width"]), 240),
-      paddingTop: getImportedPaddingTop(styles, 12),
-      paddingBottom: getImportedPaddingBottom(styles, 12),
-      paddingX: getImportedPaddingX(styles, 24),
-      backgroundColor: getImportedBackground(styles, "#ffffff")
+      align: getImportedAlign(element, styles) || context.align || "left",
+      width: readPixelValue(
+        element.getAttribute("width") || readStyleValue(styles, ["width"]),
+        context.width || 240
+      ),
+      paddingTop: getImportedPaddingTop(styles, context.paddingTop ?? 12),
+      paddingBottom: getImportedPaddingBottom(styles, context.paddingBottom ?? 12),
+      paddingX: getImportedPaddingX(styles, context.paddingX ?? 24),
+      backgroundColor: getImportedBackground(styles, context.backgroundColor || "#ffffff")
     }
   });
 }
@@ -556,7 +614,7 @@ function isButtonLikeAnchor(element, text, styles) {
   );
 }
 
-function createImportedButtonBlock(element, index) {
+function createImportedButtonBlock(element, index, context = {}) {
   const styles = parseStyleAttribute(element.getAttribute("style"));
   const label = getElementText(element);
   if (!isButtonLikeAnchor(element, label, styles)) {
@@ -570,40 +628,43 @@ function createImportedButtonBlock(element, index) {
       url: sanitizeImportedUrl(element.getAttribute("href"))
     },
     styles: {
-      align: getImportedAlign(element, styles),
-      backgroundColor: getImportedBackground(styles, APP_CONFIG.brand?.primary || "#32ce32"),
-      color: getImportedTextColor(styles, "#041004"),
-      radius: readPixelValue(readStyleValue(styles, ["border-radius"]), 999),
-      fontSize: readPixelValue(readStyleValue(styles, ["font-size"]), 15),
-      fontWeight: readPixelValue(readStyleValue(styles, ["font-weight"]), 700),
-      paddingTop: readPixelValue(readStyleValue(styles, ["padding-top", "padding"]), 14),
-      paddingBottom: readPixelValue(readStyleValue(styles, ["padding-bottom", "padding"]), 14),
-      paddingX: getImportedPaddingX(styles, 24),
-      outerPaddingTop: getImportedPaddingTop(styles, 8),
-      outerPaddingBottom: getImportedPaddingBottom(styles, 20)
+      align: getImportedAlign(element, styles) || context.align || "center",
+      backgroundColor: getImportedBackground(
+        styles,
+        context.backgroundColor || APP_CONFIG.brand?.primary || "#32ce32"
+      ),
+      color: getImportedTextColor(styles, context.color || "#041004"),
+      radius: readPixelValue(readStyleValue(styles, ["border-radius"]), context.radius || 999),
+      fontSize: readPixelValue(readStyleValue(styles, ["font-size"]), context.fontSize || 15),
+      fontWeight: readNumericValue(readStyleValue(styles, ["font-weight"]), context.fontWeight || 700),
+      paddingTop: readPixelValue(readStyleValue(styles, ["padding-top"]), context.paddingTop ?? 14),
+      paddingBottom: readPixelValue(readStyleValue(styles, ["padding-bottom"]), context.paddingBottom ?? 14),
+      paddingX: getImportedPaddingX(styles, context.paddingX ?? 24),
+      outerPaddingTop: getImportedPaddingTop(styles, context.paddingTop ?? 8),
+      outerPaddingBottom: getImportedPaddingBottom(styles, context.paddingBottom ?? 20)
     }
   });
 }
 
-function createImportedDividerBlock(element, index) {
+function createImportedDividerBlock(element, index, context = {}) {
   const styles = parseStyleAttribute(element.getAttribute("style"));
 
   return createBlock("divider", {
     name: buildImportedBlockName("divider", index),
     styles: {
-      color: readStyleValue(styles, ["border-color", "color"], "#d9e5d9"),
-      paddingTop: getImportedPaddingTop(styles, 18),
-      paddingBottom: getImportedPaddingBottom(styles, 18),
-      paddingX: getImportedPaddingX(styles, 40)
+      color: readStyleValue(styles, ["border-color", "color"], context.color || "#d9e5d9"),
+      paddingTop: getImportedPaddingTop(styles, context.paddingTop ?? 18),
+      paddingBottom: getImportedPaddingBottom(styles, context.paddingBottom ?? 18),
+      paddingX: getImportedPaddingX(styles, context.paddingX ?? 40)
     }
   });
 }
 
-function createImportedSpacerBlock(element, index) {
+function createImportedSpacerBlock(element, index, context = {}) {
   const styles = parseStyleAttribute(element.getAttribute("style"));
   const height = readPixelValue(
     readStyleValue(styles, ["height", "min-height", "padding-top", "padding-bottom"]),
-    24
+    context.paddingBottom || context.paddingTop || 24
   );
 
   if (!height || height < 18) {
@@ -616,6 +677,26 @@ function createImportedSpacerBlock(element, index) {
       height
     }
   });
+}
+
+function createImportedParagraphBlocksFromText(text, nextIndex, context = {}) {
+  return splitImportedText(text).map((part) =>
+    createBlock("paragraph", {
+      name: buildImportedBlockName("paragraph", nextIndex()),
+      content: { text: part },
+      styles: {
+        align: context.align || "left",
+        color: context.color || "#4a4a4a",
+        fontSize: context.fontSize || 16,
+        fontWeight: context.fontWeight || 400,
+        lineHeight: context.lineHeight || 1.7,
+        paddingTop: context.paddingTop ?? 4,
+        paddingBottom: context.paddingBottom ?? 18,
+        paddingX: context.paddingX ?? 40,
+        backgroundColor: context.backgroundColor || ""
+      }
+    })
+  );
 }
 
 function dedupeImportedBlocks(blocks) {
@@ -655,16 +736,17 @@ function shouldIgnoreImportedElement(element) {
 function extractImportedBlocks(root) {
   const blocks = [];
 
-  function visit(element) {
+  function visit(element, inheritedContext = {}) {
     if (!element || shouldIgnoreImportedElement(element)) {
       return;
     }
 
     const tagName = element.tagName.toUpperCase();
     const nextIndex = () => blocks.length + 1;
+    const context = buildImportedContext(element, inheritedContext);
 
     if (tagName === "IMG") {
-      const block = createImportedImageBlock(element, nextIndex());
+      const block = createImportedImageBlock(element, nextIndex(), context);
       if (block) {
         blocks.push(block);
       }
@@ -672,12 +754,12 @@ function extractImportedBlocks(root) {
     }
 
     if (tagName === "HR") {
-      blocks.push(createImportedDividerBlock(element, nextIndex()));
+      blocks.push(createImportedDividerBlock(element, nextIndex(), context));
       return;
     }
 
     if (/^H[1-6]$/.test(tagName)) {
-      const block = createImportedHeadingBlock(element, nextIndex());
+      const block = createImportedHeadingBlock(element, nextIndex(), context);
       if (block) {
         blocks.push(block);
       }
@@ -685,7 +767,7 @@ function extractImportedBlocks(root) {
     }
 
     if (tagName === "A") {
-      const block = createImportedButtonBlock(element, nextIndex());
+      const block = createImportedButtonBlock(element, nextIndex(), context);
       if (block) {
         blocks.push(block);
         return;
@@ -693,41 +775,60 @@ function extractImportedBlocks(root) {
     }
 
     if (["P", "LI", "BLOCKQUOTE"].includes(tagName)) {
-      const block = createImportedParagraphBlock(element, nextIndex());
-      if (block) {
+      createImportedParagraphBlocksFromText(getElementText(element), nextIndex, context).forEach((block) => {
         blocks.push(block);
-      }
+      });
       return;
+    }
+
+    if (tagName === "TR") {
+      const cells = Array.from(element.children).filter((child) => ["TD", "TH"].includes(child.tagName.toUpperCase()));
+
+      if (cells.length) {
+        cells.forEach((cell, index) => {
+          const beforeCell = blocks.length;
+          visit(cell, context);
+          const addedBlocks = blocks.length - beforeCell;
+
+          if (cells.length > 1 && addedBlocks > 0 && index < cells.length - 1) {
+            const spacerBlock = createBlock("spacer", {
+              name: buildImportedBlockName("spacer", nextIndex()),
+              styles: { height: 18 }
+            });
+            blocks.push(spacerBlock);
+          }
+        });
+        return;
+      }
     }
 
     if (importContainerTags.has(tagName)) {
       const beforeChildren = blocks.length;
-      Array.from(element.children).forEach((child) => visit(child));
+      Array.from(element.children).forEach((child) => visit(child, context));
 
       if (blocks.length > beforeChildren) {
         return;
       }
 
-      const textBlock = createImportedParagraphBlock(element, nextIndex());
-      if (textBlock) {
-        blocks.push(textBlock);
+      const textBlocks = createImportedParagraphBlocksFromText(getElementText(element), nextIndex, context);
+      if (textBlocks.length) {
+        textBlocks.forEach((block) => blocks.push(block));
         return;
       }
 
-      const spacerBlock = createImportedSpacerBlock(element, nextIndex());
+      const spacerBlock = createImportedSpacerBlock(element, nextIndex(), context);
       if (spacerBlock) {
         blocks.push(spacerBlock);
       }
       return;
     }
 
-    const paragraphBlock = createImportedParagraphBlock(element, nextIndex());
-    if (paragraphBlock) {
-      blocks.push(paragraphBlock);
-    }
+    createImportedParagraphBlocksFromText(getElementText(element), nextIndex, context).forEach((block) => {
+      blocks.push(block);
+    });
   }
 
-  Array.from(root.children).forEach((child) => visit(child));
+  Array.from(root.children).forEach((child) => visit(child, {}));
   return dedupeImportedBlocks(blocks);
 }
 
@@ -827,11 +928,13 @@ export function renderBlockHtml(block, company = {}, canvas = defaultCanvas) {
   const align = styles.align || "left";
   const wrapperPaddingTop = Number(styles.outerPaddingTop ?? styles.paddingTop ?? 0);
   const wrapperPaddingBottom = Number(styles.outerPaddingBottom ?? styles.paddingBottom ?? 0);
+  const wrapperPaddingLeft = Number(styles.paddingLeft ?? styles.paddingX ?? 0);
+  const wrapperPaddingRight = Number(styles.paddingRight ?? styles.paddingX ?? 0);
   const wrapperStyle = [
     `padding-top:${wrapperPaddingTop}px`,
     `padding-bottom:${wrapperPaddingBottom}px`,
-    `padding-left:${Number(styles.paddingX ?? 0)}px`,
-    `padding-right:${Number(styles.paddingX ?? 0)}px`,
+    `padding-left:${wrapperPaddingLeft}px`,
+    `padding-right:${wrapperPaddingRight}px`,
     styles.backgroundColor ? `background:${styles.backgroundColor}` : ""
   ].filter(Boolean).join(";");
 
@@ -1090,6 +1193,7 @@ export const templateService = {
     });
   },
   createBlock,
+  duplicateBlock,
   importTemplateHtml,
   normalizeTemplateDesign,
   renderTemplateHtmlFromDesign

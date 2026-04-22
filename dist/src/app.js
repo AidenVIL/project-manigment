@@ -67,6 +67,8 @@ let toastTimer = null;
 let shouldRestoreEditorFocus = false;
 let currentEditorDrag = null;
 let activeDropZone = null;
+let currentLayoutDrag = null;
+let pendingFocusRestoreFrame = null;
 
 function clone(value) {
   return structuredClone(value);
@@ -105,6 +107,14 @@ function getEditorCompany(editor = state.editor) {
   }
 
   return state.companies.find((company) => company.id === editor.companyId) || PREVIEW_COMPANY;
+}
+
+function findEditorBlock(blockId, editor = state.editor) {
+  if (!editor) {
+    return null;
+  }
+
+  return editor.design.blocks.find((block) => block.id === blockId) || null;
 }
 
 function getModalCompany() {
@@ -270,12 +280,84 @@ function resetEditorDragState() {
   document.body.classList.remove("is-editor-dragging");
 }
 
+function getBlockSpacingSnapshot(styles = {}) {
+  return {
+    paddingLeft: Number(styles.paddingLeft ?? styles.paddingX ?? 0),
+    paddingRight: Number(styles.paddingRight ?? styles.paddingX ?? 0),
+    paddingTop: Number(styles.paddingTop ?? 0),
+    paddingBottom: Number(styles.paddingBottom ?? 0)
+  };
+}
+
+function startLayoutDrag(blockId, event) {
+  const block = findEditorBlock(blockId);
+  if (!block) {
+    return;
+  }
+
+  state.editor.selectedBlockId = blockId;
+  currentLayoutDrag = {
+    blockId,
+    startX: event.clientX,
+    startY: event.clientY,
+    initial: getBlockSpacingSnapshot(block.styles)
+  };
+  document.body.classList.add("is-positioning-block");
+  renderApp();
+}
+
+function updateLayoutDrag(event) {
+  if (!currentLayoutDrag || !state.editor) {
+    return;
+  }
+
+  const block = findEditorBlock(currentLayoutDrag.blockId);
+  if (!block) {
+    return;
+  }
+
+  const deltaX = event.clientX - currentLayoutDrag.startX;
+  const deltaY = event.clientY - currentLayoutDrag.startY;
+  const nextLeft = Math.max(0, Math.round(currentLayoutDrag.initial.paddingLeft + deltaX));
+  const nextRight = Math.max(0, Math.round(currentLayoutDrag.initial.paddingRight - deltaX));
+  const nextTop = Math.max(0, Math.round(currentLayoutDrag.initial.paddingTop + deltaY));
+  const nextBottom = Math.max(0, Math.round(currentLayoutDrag.initial.paddingBottom - deltaY));
+
+  block.styles.paddingLeft = nextLeft;
+  block.styles.paddingRight = nextRight;
+  block.styles.paddingTop = nextTop;
+  block.styles.paddingBottom = nextBottom;
+  delete block.styles.paddingX;
+  renderApp();
+}
+
+function endLayoutDrag() {
+  if (!currentLayoutDrag) {
+    return;
+  }
+
+  currentLayoutDrag = null;
+  document.body.classList.remove("is-positioning-block");
+}
+
 function buildFocusSnapshot(target, base = {}) {
   const snapshot = { ...base };
 
   if (typeof target.selectionStart === "number" && typeof target.selectionEnd === "number") {
     snapshot.selectionStart = target.selectionStart;
     snapshot.selectionEnd = target.selectionEnd;
+  }
+
+  if (typeof target.selectionDirection === "string") {
+    snapshot.selectionDirection = target.selectionDirection;
+  }
+
+  if (typeof target.scrollTop === "number") {
+    snapshot.scrollTop = target.scrollTop;
+  }
+
+  if (typeof target.scrollLeft === "number") {
+    snapshot.scrollLeft = target.scrollLeft;
   }
 
   return snapshot;
@@ -337,9 +419,30 @@ function restoreEditorFocus() {
   ) {
     input.setSelectionRange(
       state.editor.lastFocusedTarget.selectionStart,
-      state.editor.lastFocusedTarget.selectionEnd
+      state.editor.lastFocusedTarget.selectionEnd,
+      state.editor.lastFocusedTarget.selectionDirection || "none"
     );
   }
+
+  if (typeof state.editor.lastFocusedTarget.scrollTop === "number") {
+    input.scrollTop = state.editor.lastFocusedTarget.scrollTop;
+  }
+
+  if (typeof state.editor.lastFocusedTarget.scrollLeft === "number") {
+    input.scrollLeft = state.editor.lastFocusedTarget.scrollLeft;
+  }
+}
+
+function scheduleEditorFocusRestore() {
+  if (pendingFocusRestoreFrame) {
+    window.cancelAnimationFrame(pendingFocusRestoreFrame);
+  }
+
+  pendingFocusRestoreFrame = window.requestAnimationFrame(() => {
+    restoreEditorFocus();
+    shouldRestoreEditorFocus = false;
+    pendingFocusRestoreFrame = null;
+  });
 }
 
 function renderShell() {
@@ -420,6 +523,11 @@ function renderLoadingScreen() {
 }
 
 function renderApp() {
+  if (!state.editor?.open && pendingFocusRestoreFrame) {
+    window.cancelAnimationFrame(pendingFocusRestoreFrame);
+    pendingFocusRestoreFrame = null;
+  }
+
   if (state.loading) {
     root.innerHTML = renderLoadingScreen();
     return;
@@ -441,8 +549,7 @@ function renderApp() {
       preview
     });
     if (shouldRestoreEditorFocus) {
-      restoreEditorFocus();
-      shouldRestoreEditorFocus = false;
+      scheduleEditorFocusRestore();
     }
     return;
   }
@@ -595,6 +702,7 @@ function openCompanyModal(companyId = "") {
 }
 
 function closeEditor() {
+  endLayoutDrag();
   state.editor = null;
   renderApp();
 }
@@ -749,9 +857,7 @@ function findSelectedBlock() {
     return null;
   }
 
-  return (
-    state.editor.design.blocks.find((block) => block.id === state.editor.selectedBlockId) || null
-  );
+  return findEditorBlock(state.editor.selectedBlockId);
 }
 
 function updateSelectedBlock(mutator) {
@@ -902,6 +1008,23 @@ function insertBlockAtIndex(type, targetIndex) {
   blocks.splice(safeIndex, 0, block);
   state.editor.selectedBlockId = block.id;
   state.editor.sidebarTab = "layers";
+}
+
+function duplicateSelectedBlock() {
+  if (!state.editor || state.editor.selectedBlockId === "body") {
+    return;
+  }
+
+  const blocks = state.editor.design.blocks;
+  const currentIndex = blocks.findIndex((block) => block.id === state.editor.selectedBlockId);
+  if (currentIndex < 0) {
+    return;
+  }
+
+  const duplicate = templateService.duplicateBlock(blocks[currentIndex]);
+  blocks.splice(currentIndex + 1, 0, duplicate);
+  state.editor.selectedBlockId = duplicate.id;
+  renderApp();
 }
 
 function moveBlockToIndex(blockId, targetIndex) {
@@ -1241,6 +1364,9 @@ root.addEventListener("click", async (event) => {
     case "move-block-down":
       moveSelectedBlock(1);
       return;
+    case "duplicate-block":
+      duplicateSelectedBlock();
+      return;
     case "delete-block":
       deleteSelectedBlock();
       return;
@@ -1421,6 +1547,37 @@ root.addEventListener("change", async (event) => {
   }
 });
 
+root.addEventListener("pointerdown", (event) => {
+  if (!state.editor || event.button !== 0) {
+    return;
+  }
+
+  const layoutTarget = event.target.closest("[data-layout-drag-id]");
+  if (!layoutTarget) {
+    return;
+  }
+
+  event.preventDefault();
+  startLayoutDrag(layoutTarget.dataset.layoutDragId, event);
+});
+
+window.addEventListener("pointermove", (event) => {
+  if (!currentLayoutDrag) {
+    return;
+  }
+
+  event.preventDefault();
+  updateLayoutDrag(event);
+});
+
+window.addEventListener("pointerup", () => {
+  endLayoutDrag();
+});
+
+window.addEventListener("blur", () => {
+  endLayoutDrag();
+});
+
 root.addEventListener("dragstart", (event) => {
   if (!state.editor) {
     return;
@@ -1536,6 +1693,11 @@ root.addEventListener("submit", async (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && currentLayoutDrag) {
+    endLayoutDrag();
+    return;
+  }
+
   if (event.key === "Escape" && state.modal.open) {
     closeModal();
     return;

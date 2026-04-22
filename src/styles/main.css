@@ -1197,8 +1197,39 @@ textarea {
   font-size: 0.9rem;
 }
 
+.canvas-block__toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.canvas-block__reorder-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 0 0.75rem;
+  border-radius: 999px;
+  border: 1px solid rgba(50, 206, 50, 0.24);
+  background: rgba(50, 206, 50, 0.08);
+  color: var(--text);
+  font-size: 0.78rem;
+  cursor: grab;
+}
+
 .canvas-block__content {
+  pointer-events: auto;
+  cursor: grab;
+  user-select: none;
+}
+
+.canvas-block__content * {
   pointer-events: none;
+}
+
+.is-positioning-block .canvas-block__content,
+.is-positioning-block .canvas-block__reorder-handle {
+  cursor: grabbing;
 }
 
 .editor-dropzone {

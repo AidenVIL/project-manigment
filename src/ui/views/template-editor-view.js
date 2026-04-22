@@ -179,14 +179,22 @@ function renderCanvas(design, company, selectedBlockId, device) {
                       class="canvas-block ${selectedBlockId === block.id ? "is-selected" : ""}"
                       data-action="select-editor-block"
                       data-id="${block.id}"
-                      draggable="true"
-                      data-drag-kind="existing-block"
                     >
                       <div class="canvas-block__toolbar">
                         <strong>${escapeHtml(block.name || block.type)}</strong>
-                        <small>Drag to move</small>
+                        <div class="canvas-block__toolbar-actions">
+                          <small>Drag preview to position</small>
+                          <span
+                            class="canvas-block__reorder-handle"
+                            draggable="true"
+                            data-drag-kind="existing-block"
+                            data-id="${block.id}"
+                          >
+                            Reorder
+                          </span>
+                        </div>
                       </div>
-                      <div class="canvas-block__content">
+                      <div class="canvas-block__content" data-layout-drag-id="${block.id}">
                         ${renderBlockHtml(block, company, design.canvas)}
                       </div>
                     </div>
@@ -206,6 +214,7 @@ function renderBodyInspector(editor) {
   return `
     <div class="inspector-group">
       <span class="eyebrow">Canvas</span>
+      <p class="editor-help">Drag a block in the preview to adjust its spacing visually.</p>
       <label class="field">
         <span>Email Width</span>
         <input data-editor-scope="canvas" data-editor-field="width" type="number" value="${Number(editor.design.canvas.width)}" />
@@ -244,8 +253,12 @@ function renderSelectedBlockInspector(editor) {
       </select>
     </label>
     <label class="field">
-      <span>Padding X</span>
-      <input data-editor-scope="block-style" data-editor-field="paddingX" type="number" value="${Number(styles.paddingX || 0)}" />
+      <span>Padding Left</span>
+      <input data-editor-scope="block-style" data-editor-field="paddingLeft" type="number" value="${Number(styles.paddingLeft ?? styles.paddingX ?? 0)}" />
+    </label>
+    <label class="field">
+      <span>Padding Right</span>
+      <input data-editor-scope="block-style" data-editor-field="paddingRight" type="number" value="${Number(styles.paddingRight ?? styles.paddingX ?? 0)}" />
     </label>
     <label class="field">
       <span>Padding Top</span>
@@ -345,7 +358,9 @@ function renderSelectedBlockInspector(editor) {
     <div class="inspector-group">
       <span class="eyebrow">Selected Block</span>
       <h3>${escapeHtml(block.name || block.type)}</h3>
+      <p class="editor-help">Drag this block in the preview to move it left, right, up, or down using spacing.</p>
       <div class="inspector-toolbar">
+        <button type="button" class="ghost-button" data-action="duplicate-block" data-id="${block.id}">Duplicate</button>
         <button type="button" class="ghost-button" data-action="move-block-up" data-id="${block.id}">Up</button>
         <button type="button" class="ghost-button" data-action="move-block-down" data-id="${block.id}">Down</button>
         <button type="button" class="ghost-button ghost-button--danger" data-action="delete-block" data-id="${block.id}">Delete</button>
