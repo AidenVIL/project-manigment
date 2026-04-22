@@ -1247,6 +1247,19 @@ root.addEventListener("click", async (event) => {
     case "open-add-company":
       openCompanyModal();
       return;
+    case "submit-company-form": {
+      const form = root.querySelector("#company-form");
+      if (!form) {
+        return;
+      }
+
+      if (!form.reportValidity()) {
+        return;
+      }
+
+      form.requestSubmit();
+      return;
+    }
     case "close-modal":
       closeModal();
       return;

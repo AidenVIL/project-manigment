@@ -43,6 +43,11 @@ export const companyService = {
   },
   async saveCompany(input) {
     const company = createCompany(input);
+
+    if (supabaseService.isReady()) {
+      await supabaseService.upsert("companies", serializeCompanyForApi(company));
+    }
+
     const currentCompanies = readStoredCompanies();
     const exists = currentCompanies.some((item) => item.id === company.id);
     const nextCompanies = sortCompanies(
@@ -52,10 +57,6 @@ export const companyService = {
     );
 
     storageService.write(STORAGE_KEYS.companies, nextCompanies);
-
-    if (supabaseService.isReady()) {
-      await supabaseService.upsert("companies", serializeCompanyForApi(company));
-    }
 
     return company;
   },

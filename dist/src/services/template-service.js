@@ -1090,6 +1090,11 @@ export const templateService = {
       html: renderTemplateHtmlFromDesign(normalizedDesign),
       updatedAt: new Date().toISOString()
     });
+
+    if (supabaseService.isReady()) {
+      await supabaseService.upsert("email_templates", serializeTemplateForApi(template));
+    }
+
     const currentTemplates = readStoredTemplates();
     const exists = currentTemplates.some((item) => item.id === template.id);
     const nextTemplates = sortTemplates(
@@ -1099,10 +1104,6 @@ export const templateService = {
     );
 
     storageService.write(STORAGE_KEYS.templates, nextTemplates);
-
-    if (supabaseService.isReady()) {
-      await supabaseService.upsert("email_templates", serializeTemplateForApi(template));
-    }
 
     return template;
   },

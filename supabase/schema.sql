@@ -39,6 +39,27 @@ create table if not exists public.companies (
   updated_at timestamptz not null default timezone('utc', now())
 );
 
+alter table if exists public.companies
+add column if not exists contact_name text,
+add column if not exists contact_role text,
+add column if not exists contact_email text,
+add column if not exists sector text,
+add column if not exists status text default 'prospect',
+add column if not exists ask_type text,
+add column if not exists ask_value numeric(12, 2) default 0,
+add column if not exists contribution_value numeric(12, 2) default 0,
+add column if not exists contribution_type text,
+add column if not exists first_contacted date,
+add column if not exists next_follow_up date,
+add column if not exists proposal_date date,
+add column if not exists interview_date date,
+add column if not exists response_status text default 'waiting',
+add column if not exists request_from_us text,
+add column if not exists giving_in_return text,
+add column if not exists notes text,
+add column if not exists created_at timestamptz default timezone('utc', now()),
+add column if not exists updated_at timestamptz default timezone('utc', now());
+
 create table if not exists public.email_templates (
   id uuid primary key default gen_random_uuid(),
   name text not null,

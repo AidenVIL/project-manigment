@@ -12,6 +12,25 @@ function buildHeaders(extraHeaders = {}) {
   };
 }
 
+function buildFriendlySupabaseError(message = "") {
+  const text = String(message || "");
+  const missingColumnMatch = text.match(/Could not find the '([^']+)' column of '([^']+)'/);
+
+  if (missingColumnMatch) {
+    const [, columnName, tableName] = missingColumnMatch;
+
+    if (tableName === "email_templates") {
+      return `Supabase is missing the ${tableName}.${columnName} column. Run the SQL in supabase/schema.sql or supabase/fixes/add_email_templates_design_column.sql, then try again.`;
+    }
+
+    if (tableName === "companies") {
+      return `Supabase is missing the ${tableName}.${columnName} column. Run the SQL in supabase/schema.sql or supabase/fixes/sync_companies_columns.sql, then try again.`;
+    }
+  }
+
+  return text;
+}
+
 async function request(path, options = {}) {
   if (!isSupabaseConfigured()) {
     throw new Error("Supabase is not configured.");
@@ -29,7 +48,9 @@ async function request(path, options = {}) {
 
   if (!response.ok) {
     const message = await response.text();
-    throw new Error(message || `Supabase request failed with ${response.status}.`);
+    throw new Error(
+      buildFriendlySupabaseError(message || `Supabase request failed with ${response.status}.`)
+    );
   }
 
   if (response.status === 204) {
