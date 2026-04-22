@@ -1,7 +1,6 @@
 import {
   blockDefinitions,
   editorTabs,
-  renderBlockHtml,
   variableDefinitions
 } from "../../services/template-service.js";
 import { escapeHtml } from "../../utils/formatters.js";
@@ -158,55 +157,68 @@ function renderBlocksPanel(editor, previewTokens) {
   `;
 }
 
-function renderCanvas(design, company, selectedBlockId, device) {
-  const viewportWidth = device === "mobile" ? 390 : design.canvas.width;
-  const emailWidth = Number(design.canvas.width || 680);
+function buildPreviewDocument(html) {
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: #ffffff;
+      }
+    </style>
+  </head>
+  <body>
+    ${html}
+    <script>
+      (function () {
+        function syncHeight() {
+          if (!window.frameElement) {
+            return;
+          }
+
+          var body = document.body;
+          var doc = document.documentElement;
+          var nextHeight = Math.max(
+            body ? body.scrollHeight : 0,
+            doc ? doc.scrollHeight : 0,
+            body ? body.offsetHeight : 0,
+            doc ? doc.offsetHeight : 0
+          );
+
+          window.frameElement.style.height = nextHeight + "px";
+        }
+
+        window.addEventListener("load", syncHeight);
+        window.addEventListener("resize", syncHeight);
+        setTimeout(syncHeight, 0);
+      })();
+    </script>
+  </body>
+</html>`;
+}
+
+function renderCanvas(previewHtml, canvas, selectedBlockId, device) {
+  const viewportWidth = device === "mobile" ? 390 : Number(canvas?.width || 680);
+  const previewDocument = buildPreviewDocument(previewHtml);
 
   return `
     <div class="canvas-stage">
-      <div class="canvas-preview-shell" style="width:${Number(viewportWidth)}px;">
-        <table
-          role="presentation"
-          width="100%"
-          cellpadding="0"
-          cellspacing="0"
-          class="canvas-render-table"
-          style="background:${design.canvas.bodyBackground}; padding:24px 0; font-family:${escapeHtml(design.canvas.fontFamily)};"
-        >
-          <tr>
-            <td align="center">
-              <table
-                role="presentation"
-                width="${emailWidth}"
-                cellpadding="0"
-                cellspacing="0"
-                class="canvas-email ${selectedBlockId === "body" ? "is-selected" : ""}"
-                data-action="select-editor-body"
-                style="width:${emailWidth}px; max-width:100%; background:${design.canvas.emailBackground}; border-radius:${Number(design.canvas.radius || 0)}px; overflow:hidden;"
-              >
-                <tr>
-                  <td class="canvas-email__cell">
-            ${design.blocks
-              .map(
-                (block) => `
-                  <div
-                    class="canvas-block ${selectedBlockId === block.id ? "is-selected" : ""}"
-                    data-action="select-editor-block"
-                    data-id="${block.id}"
-                  >
-                    <div class="canvas-block__content" data-layout-drag-id="${block.id}">
-                      ${renderBlockHtml(block, company, design.canvas)}
-                    </div>
-                  </div>
-                `
-              )
-              .join("")}
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-        </table>
+      <div
+        class="canvas-preview-shell ${selectedBlockId === "body" ? "is-selected" : ""}"
+        style="width:${Number(viewportWidth)}px;"
+        data-action="select-editor-body"
+      >
+        <iframe
+          class="canvas-preview-frame"
+          title="Exact email preview"
+          sandbox="allow-same-origin allow-scripts"
+          scrolling="no"
+          srcdoc="${escapeHtml(previewDocument)}"
+        ></iframe>
       </div>
     </div>
   `;
@@ -477,7 +489,7 @@ export function renderTemplateEditorView({ editor, company, preview }) {
             <span>${editor.mode === "template" ? "Master Template" : "One-Off Draft"}</span>
             <strong>${escapeHtml(company?.companyName || "Preview")}</strong>
           </div>
-          ${renderCanvas(editor.design, company, editor.selectedBlockId, editor.device)}
+          ${renderCanvas(preview.html, editor.design.canvas, editor.selectedBlockId, editor.device)}
         </section>
         <aside class="editor-inspector panel">
           ${renderSelectedBlockInspector(editor)}
