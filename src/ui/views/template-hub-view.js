@@ -66,8 +66,12 @@ export function renderEmailStudioView({ templates, drafts }) {
           <span class="eyebrow">Email Studio</span>
           <h2>Templates & Drafts</h2>
         </div>
-        <button type="button" class="primary-button" data-action="new-template">Create Template</button>
+        <div class="template-hub-actions">
+          <button type="button" class="ghost-button" data-action="open-template-import">Import Template</button>
+          <button type="button" class="primary-button" data-action="new-template">Create Template</button>
+        </div>
       </div>
+      <input id="template-import-input" type="file" accept=".html,.htm,.txt,text/html" hidden />
       <div class="template-hub-grid">
         <div class="template-card-stack">
           ${templateMarkup}

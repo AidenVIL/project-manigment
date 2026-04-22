@@ -42,7 +42,10 @@ const state = {
   },
   modal: {
     open: false,
-    companyId: ""
+    companyId: "",
+    draft: createCompany(),
+    saving: false,
+    error: ""
   },
   mailbox: {
     loading: false,
@@ -62,6 +65,8 @@ const state = {
 
 let toastTimer = null;
 let shouldRestoreEditorFocus = false;
+let currentEditorDrag = null;
+let activeDropZone = null;
 
 function clone(value) {
   return structuredClone(value);
@@ -103,11 +108,8 @@ function getEditorCompany(editor = state.editor) {
 }
 
 function getModalCompany() {
-  if (!state.modal.companyId) {
-    return {
-      ...createCompany(),
-      id: ""
-    };
+  if (state.modal.open) {
+    return state.modal.draft || createCompany();
   }
 
   return state.companies.find((company) => company.id === state.modal.companyId) || createCompany();
@@ -226,6 +228,46 @@ function buildEditorPreview(editor = state.editor) {
     },
     getEditorCompany(editor)
   );
+}
+
+function buildTemplateNameFromFilename(filename = "") {
+  const baseName = String(filename || "")
+    .replace(/\.[^.]+$/, "")
+    .replace(/[-_]+/g, " ")
+    .trim();
+
+  if (!baseName) {
+    return "Imported Template";
+  }
+
+  return baseName.replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function clearActiveDropZone() {
+  if (activeDropZone) {
+    activeDropZone.classList.remove("is-active");
+  }
+
+  activeDropZone = null;
+}
+
+function setActiveDropZone(dropZone) {
+  if (activeDropZone === dropZone) {
+    return;
+  }
+
+  clearActiveDropZone();
+
+  if (dropZone) {
+    dropZone.classList.add("is-active");
+    activeDropZone = dropZone;
+  }
+}
+
+function resetEditorDragState() {
+  currentEditorDrag = null;
+  clearActiveDropZone();
+  document.body.classList.remove("is-editor-dragging");
 }
 
 function buildFocusSnapshot(target, base = {}) {
@@ -530,12 +572,25 @@ async function openMailboxMessage(messageId, rerender = true) {
 function closeModal() {
   state.modal.open = false;
   state.modal.companyId = "";
+  state.modal.draft = createCompany();
+  state.modal.saving = false;
+  state.modal.error = "";
   renderApp();
 }
 
 function openCompanyModal(companyId = "") {
+  const existingCompany = companyId
+    ? state.companies.find((company) => company.id === companyId) || createCompany()
+    : {
+        ...createCompany(),
+        id: ""
+      };
+
   state.modal.open = true;
   state.modal.companyId = companyId;
+  state.modal.draft = clone(existingCompany);
+  state.modal.saving = false;
+  state.modal.error = "";
   renderApp();
 }
 
@@ -624,6 +679,69 @@ function createNewTemplate() {
     design: starter.design
   });
   renderApp();
+}
+
+function replaceEditorWithImportedHtml(html, suggestedName = "") {
+  if (!state.editor) {
+    return;
+  }
+
+  const imported = templateService.importTemplateHtml(html, {
+    name: state.editor.nameInput.trim() || suggestedName || "Imported Template",
+    subject: state.editor.subjectInput.trim() || "{{team_name}} update for {{company_name}}"
+  });
+
+  state.editor.design = imported.design;
+  if (!state.editor.nameInput.trim()) {
+    state.editor.nameInput = imported.name;
+  }
+  if (!state.editor.subjectInput.trim()) {
+    state.editor.subjectInput = imported.subject;
+  }
+  state.editor.selectedBlockId = imported.design.blocks[0]?.id || "body";
+  state.editor.sidebarTab = "layers";
+  renderApp();
+  showToast("Imported HTML converted into editable Atomic blocks.");
+}
+
+function openImportedTemplateEditor(html, suggestedName = "") {
+  const importedTemplate = templateService.createImportedTemplate({
+    name: suggestedName || "Imported Template",
+    html
+  });
+
+  state.editor = createEditorState({
+    mode: "template",
+    id: importedTemplate.id,
+    templateId: importedTemplate.id,
+    nameInput: importedTemplate.name,
+    subjectInput: importedTemplate.subject,
+    design: importedTemplate.design,
+    selectedBlockId: importedTemplate.design.blocks[0]?.id || "body"
+  });
+  renderApp();
+  showToast(`${importedTemplate.name} imported and ready to edit.`);
+}
+
+async function importHtmlFile(file, target = "new-template") {
+  if (!file) {
+    return;
+  }
+
+  const html = await file.text();
+  if (!String(html || "").trim()) {
+    showToast("That file was empty.");
+    return;
+  }
+
+  const templateName = buildTemplateNameFromFilename(file.name);
+
+  if (target === "replace-editor") {
+    replaceEditorWithImportedHtml(html, templateName);
+    return;
+  }
+
+  openImportedTemplateEditor(html, templateName);
 }
 
 function findSelectedBlock() {
@@ -773,6 +891,59 @@ function addBlockToEditor(type) {
   renderApp();
 }
 
+function insertBlockAtIndex(type, targetIndex) {
+  if (!state.editor) {
+    return;
+  }
+
+  const block = templateService.createBlock(type);
+  const blocks = state.editor.design.blocks;
+  const safeIndex = Math.max(0, Math.min(targetIndex, blocks.length));
+  blocks.splice(safeIndex, 0, block);
+  state.editor.selectedBlockId = block.id;
+  state.editor.sidebarTab = "layers";
+}
+
+function moveBlockToIndex(blockId, targetIndex) {
+  if (!state.editor) {
+    return;
+  }
+
+  const blocks = state.editor.design.blocks;
+  const currentIndex = blocks.findIndex((block) => block.id === blockId);
+  if (currentIndex < 0) {
+    return;
+  }
+
+  const boundedTarget = Math.max(0, Math.min(targetIndex, blocks.length));
+  if (boundedTarget === currentIndex || boundedTarget === currentIndex + 1) {
+    state.editor.selectedBlockId = blockId;
+    return;
+  }
+
+  const [block] = blocks.splice(currentIndex, 1);
+  const adjustedTarget = currentIndex < boundedTarget ? boundedTarget - 1 : boundedTarget;
+  blocks.splice(adjustedTarget, 0, block);
+  state.editor.selectedBlockId = block.id;
+}
+
+function handleEditorDrop(targetIndex) {
+  if (!state.editor || !currentEditorDrag) {
+    return;
+  }
+
+  if (currentEditorDrag.kind === "new-block") {
+    insertBlockAtIndex(currentEditorDrag.blockType, targetIndex);
+    renderApp();
+    return;
+  }
+
+  if (currentEditorDrag.kind === "existing-block") {
+    moveBlockToIndex(currentEditorDrag.blockId, targetIndex);
+    renderApp();
+  }
+}
+
 function moveSelectedBlock(direction) {
   if (!state.editor || state.editor.selectedBlockId === "body") {
     return;
@@ -827,6 +998,13 @@ async function handleCompanySubmit(form) {
   payload.askValue = Number(payload.askValue || 0);
   payload.contributionValue = Number(payload.contributionValue || 0);
   payload.lastUpdated = new Date().toISOString();
+  state.modal.draft = {
+    ...state.modal.draft,
+    ...payload
+  };
+  state.modal.saving = true;
+  state.modal.error = "";
+  renderApp();
 
   try {
     const savedCompany = await companyService.saveCompany(payload);
@@ -837,6 +1015,9 @@ async function handleCompanySubmit(form) {
     showToast(`${savedCompany.companyName} saved.`);
   } catch (error) {
     console.error(error);
+    state.modal.saving = false;
+    state.modal.error = error.message || "Could not save company.";
+    renderApp();
     showToast(error.message || "Could not save company.");
   }
 }
@@ -981,6 +1162,9 @@ root.addEventListener("click", async (event) => {
     case "new-template":
       createNewTemplate();
       return;
+    case "open-template-import":
+      root.querySelector("#template-import-input")?.click();
+      return;
     case "open-template-editor":
       openTemplateEditor(id);
       return;
@@ -1038,6 +1222,19 @@ root.addEventListener("click", async (event) => {
     case "add-editor-block":
       addBlockToEditor(id);
       return;
+    case "trigger-editor-import-file":
+      root.querySelector("#editor-import-file")?.click();
+      return;
+    case "import-editor-html": {
+      const importInput = root.querySelector("#editor-import-html");
+      const html = importInput?.value || "";
+      if (!String(html).trim()) {
+        showToast("Paste some HTML first.");
+        return;
+      }
+      replaceEditorWithImportedHtml(html);
+      return;
+    }
     case "move-block-up":
       moveSelectedBlock(-1);
       return;
@@ -1110,6 +1307,16 @@ root.addEventListener("input", (event) => {
 
   if (event.target.name === "nextFollowUp") {
     event.target.dataset.autoManaged = "false";
+  }
+
+  if (event.target.closest("#company-form")) {
+    const { name, value, type } = event.target;
+    if (name) {
+      state.modal.draft = {
+        ...state.modal.draft,
+        [name]: type === "number" ? Number(value || 0) : value
+      };
+    }
     return;
   }
 
@@ -1161,10 +1368,34 @@ root.addEventListener("input", (event) => {
   }
 });
 
-root.addEventListener("change", (event) => {
+root.addEventListener("change", async (event) => {
   if (event.target.id === "status-filter") {
     state.filters.status = event.target.value;
     renderApp();
+    return;
+  }
+
+  if (event.target.id === "template-import-input") {
+    try {
+      await importHtmlFile(event.target.files?.[0], "new-template");
+    } catch (error) {
+      console.error(error);
+      showToast(error.message || "Could not import that HTML template.");
+    } finally {
+      event.target.value = "";
+    }
+    return;
+  }
+
+  if (event.target.id === "editor-import-file") {
+    try {
+      await importHtmlFile(event.target.files?.[0], "replace-editor");
+    } catch (error) {
+      console.error(error);
+      showToast(error.message || "Could not import that HTML into the editor.");
+    } finally {
+      event.target.value = "";
+    }
     return;
   }
 
@@ -1188,6 +1419,78 @@ root.addEventListener("change", (event) => {
     shouldRestoreEditorFocus = true;
     renderApp();
   }
+});
+
+root.addEventListener("dragstart", (event) => {
+  if (!state.editor) {
+    return;
+  }
+
+  const dragTarget = event.target.closest("[data-drag-kind]");
+  if (!dragTarget) {
+    return;
+  }
+
+  if (dragTarget.dataset.dragKind === "new-block") {
+    currentEditorDrag = {
+      kind: "new-block",
+      blockType: dragTarget.dataset.blockType || dragTarget.dataset.id
+    };
+  } else if (dragTarget.dataset.dragKind === "existing-block") {
+    currentEditorDrag = {
+      kind: "existing-block",
+      blockId: dragTarget.dataset.id
+    };
+  }
+
+  if (!currentEditorDrag) {
+    return;
+  }
+
+  document.body.classList.add("is-editor-dragging");
+
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", JSON.stringify(currentEditorDrag));
+  }
+});
+
+root.addEventListener("dragover", (event) => {
+  if (!currentEditorDrag) {
+    return;
+  }
+
+  const dropZone = event.target.closest("[data-drop-index]");
+  if (!dropZone) {
+    return;
+  }
+
+  event.preventDefault();
+  setActiveDropZone(dropZone);
+
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = "move";
+  }
+});
+
+root.addEventListener("drop", (event) => {
+  if (!currentEditorDrag) {
+    return;
+  }
+
+  const dropZone = event.target.closest("[data-drop-index]");
+  if (!dropZone) {
+    resetEditorDragState();
+    return;
+  }
+
+  event.preventDefault();
+  handleEditorDrop(Number(dropZone.dataset.dropIndex || 0));
+  resetEditorDragState();
+});
+
+root.addEventListener("dragend", () => {
+  resetEditorDragState();
 });
 
 root.addEventListener("focusin", (event) => {

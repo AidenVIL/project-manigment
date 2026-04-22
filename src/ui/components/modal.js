@@ -21,6 +21,7 @@ function renderOptions(options, selectedValue) {
 export function renderCompanyModal(modalState, company) {
   const isOpen = modalState.open;
   const isEditing = Boolean(modalState.companyId);
+  const isSaving = Boolean(modalState.saving);
   const suggestedFollowUp = company.firstContacted
     ? addDaysToInputDate(company.firstContacted, 7)
     : "";
@@ -133,9 +134,16 @@ export function renderCompanyModal(modalState, company) {
             <span>Notes</span>
             <textarea name="notes" rows="4">${escapeHtml(company.notes || "")}</textarea>
           </label>
+          ${
+            modalState.error
+              ? `<div class="inline-message inline-message--danger field--span-2">${escapeHtml(
+                  modalState.error
+                )}</div>`
+              : ""
+          }
           <div class="modal-actions">
-            <button type="button" class="ghost-button" data-action="close-modal">Cancel</button>
-            <button type="submit" class="primary-button">Save Company</button>
+            <button type="button" class="ghost-button" data-action="close-modal" ${isSaving ? "disabled" : ""}>Cancel</button>
+            <button type="submit" class="primary-button" ${isSaving ? "disabled" : ""}>${isSaving ? "Saving..." : "Save Company"}</button>
           </div>
         </form>
       </div>

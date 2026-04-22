@@ -10,7 +10,7 @@ import { STORAGE_KEYS, storageService } from "./storage-service.js";
 import { supabaseService } from "./supabase-service.js";
 
 const defaultCanvas = {
-  bodyBackground: "#202522",
+  bodyBackground: "#eef5ea",
   emailBackground: "#ffffff",
   width: 680,
   radius: 0,
@@ -106,6 +106,37 @@ export const blockDefinitions = [
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
+
+const importContainerTags = new Set([
+  "BODY",
+  "HTML",
+  "TABLE",
+  "TBODY",
+  "THEAD",
+  "TFOOT",
+  "TR",
+  "TD",
+  "TH",
+  "DIV",
+  "SECTION",
+  "ARTICLE",
+  "MAIN",
+  "HEADER",
+  "FOOTER",
+  "CENTER"
+]);
+
+const importIgnoredTags = new Set([
+  "SCRIPT",
+  "STYLE",
+  "LINK",
+  "META",
+  "HEAD",
+  "TITLE",
+  "NOSCRIPT",
+  "SVG",
+  "PATH"
+]);
 
 function escapeHtml(value = "") {
   return String(value)
@@ -315,6 +346,447 @@ export function normalizeTemplateDesign(design) {
   };
 }
 
+function parseStyleAttribute(value = "") {
+  return String(value)
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .reduce((styles, part) => {
+      const separatorIndex = part.indexOf(":");
+      if (separatorIndex < 0) {
+        return styles;
+      }
+
+      const key = part.slice(0, separatorIndex).trim().toLowerCase();
+      const styleValue = part.slice(separatorIndex + 1).trim();
+      if (!key) {
+        return styles;
+      }
+
+      styles[key] = styleValue;
+      return styles;
+    }, {});
+}
+
+function readStyleValue(styles, keys, fallback = "") {
+  for (const key of keys) {
+    if (styles[key]) {
+      return styles[key];
+    }
+  }
+
+  return fallback;
+}
+
+function readPixelValue(value, fallback) {
+  if (value === undefined || value === null || value === "") {
+    return fallback;
+  }
+
+  const match = String(value).match(/-?\d+(\.\d+)?/);
+  if (!match) {
+    return fallback;
+  }
+
+  const number = Number(match[0]);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function normalizeImportedAlign(value = "") {
+  const normalized = String(value || "").trim().toLowerCase();
+  return ["left", "center", "right"].includes(normalized) ? normalized : "left";
+}
+
+function normalizeImportedText(text = "") {
+  return String(text)
+    .replace(/\u00a0/g, " ")
+    .replace(/\r/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
+function getElementText(element) {
+  if (!element) {
+    return "";
+  }
+
+  const text = element.tagName === "LI" ? `• ${element.textContent || ""}` : element.textContent || "";
+  return normalizeImportedText(text);
+}
+
+function getImportedTextColor(styles, fallback) {
+  return readStyleValue(styles, ["color"], fallback);
+}
+
+function getImportedBackground(styles, fallback = "") {
+  return readStyleValue(styles, ["background-color", "background"], fallback);
+}
+
+function getImportedAlign(element, styles) {
+  return normalizeImportedAlign(
+    readStyleValue(styles, ["text-align"], element.getAttribute("align") || "left")
+  );
+}
+
+function getImportedPaddingX(styles, fallback = 40) {
+  return readPixelValue(readStyleValue(styles, ["padding-left", "padding"]), fallback);
+}
+
+function getImportedPaddingTop(styles, fallback = 0) {
+  return readPixelValue(readStyleValue(styles, ["padding-top", "padding"]), fallback);
+}
+
+function getImportedPaddingBottom(styles, fallback = 18) {
+  return readPixelValue(readStyleValue(styles, ["padding-bottom", "padding"]), fallback);
+}
+
+function sanitizeImportedUrl(url = "") {
+  const trimmed = String(url || "").trim();
+  return trimmed || "";
+}
+
+function buildImportedBlockName(type, index) {
+  const labels = {
+    heading: "Heading",
+    paragraph: "Paragraph",
+    image: "Image",
+    button: "Button",
+    divider: "Divider",
+    spacer: "Spacer"
+  };
+
+  return `${labels[type] || "Block"} ${index}`;
+}
+
+function createImportedHeadingBlock(element, index) {
+  const styles = parseStyleAttribute(element.getAttribute("style"));
+  const tagName = element.tagName.toUpperCase();
+  const sizeMap = {
+    H1: 44,
+    H2: 34,
+    H3: 28,
+    H4: 24,
+    H5: 20,
+    H6: 18
+  };
+  const text = getElementText(element);
+
+  if (!text) {
+    return null;
+  }
+
+  return createBlock("heading", {
+    name: buildImportedBlockName("heading", index),
+    content: { text },
+    styles: {
+      align: getImportedAlign(element, styles),
+      color: getImportedTextColor(styles, "#111111"),
+      fontSize: readPixelValue(readStyleValue(styles, ["font-size"]), sizeMap[tagName] || 32),
+      fontWeight: readPixelValue(readStyleValue(styles, ["font-weight"]), 700),
+      paddingTop: getImportedPaddingTop(styles, 12),
+      paddingBottom: getImportedPaddingBottom(styles, 14),
+      paddingX: getImportedPaddingX(styles, 40)
+    }
+  });
+}
+
+function createImportedParagraphBlock(element, index) {
+  const styles = parseStyleAttribute(element.getAttribute("style"));
+  const text = getElementText(element);
+
+  if (!text) {
+    return null;
+  }
+
+  return createBlock("paragraph", {
+    name: buildImportedBlockName("paragraph", index),
+    content: { text },
+    styles: {
+      align: getImportedAlign(element, styles),
+      color: getImportedTextColor(styles, "#4a4a4a"),
+      fontSize: readPixelValue(readStyleValue(styles, ["font-size"]), 16),
+      fontWeight: readPixelValue(readStyleValue(styles, ["font-weight"]), 400),
+      lineHeight: Number(readStyleValue(styles, ["line-height"], 1.7)) || 1.7,
+      paddingTop: getImportedPaddingTop(styles, 4),
+      paddingBottom: getImportedPaddingBottom(styles, 18),
+      paddingX: getImportedPaddingX(styles, 40)
+    }
+  });
+}
+
+function createImportedImageBlock(element, index) {
+  const styles = parseStyleAttribute(element.getAttribute("style"));
+  const src = sanitizeImportedUrl(element.getAttribute("src") || element.getAttribute("data-src"));
+
+  if (!src) {
+    return null;
+  }
+
+  return createBlock("image", {
+    name: buildImportedBlockName("image", index),
+    content: {
+      src,
+      alt: element.getAttribute("alt") || ""
+    },
+    styles: {
+      align: getImportedAlign(element, styles),
+      width: readPixelValue(element.getAttribute("width") || readStyleValue(styles, ["width"]), 240),
+      paddingTop: getImportedPaddingTop(styles, 12),
+      paddingBottom: getImportedPaddingBottom(styles, 12),
+      paddingX: getImportedPaddingX(styles, 24),
+      backgroundColor: getImportedBackground(styles, "#ffffff")
+    }
+  });
+}
+
+function isButtonLikeAnchor(element, text, styles) {
+  const className = element.getAttribute("class") || "";
+  return Boolean(
+    element.getAttribute("href") &&
+      text &&
+      (
+        readStyleValue(styles, ["background", "background-color"]) ||
+        readStyleValue(styles, ["border", "border-radius"]) ||
+        /btn|button|cta/i.test(className) ||
+        text.length <= 40
+      )
+  );
+}
+
+function createImportedButtonBlock(element, index) {
+  const styles = parseStyleAttribute(element.getAttribute("style"));
+  const label = getElementText(element);
+  if (!isButtonLikeAnchor(element, label, styles)) {
+    return null;
+  }
+
+  return createBlock("button", {
+    name: buildImportedBlockName("button", index),
+    content: {
+      label,
+      url: sanitizeImportedUrl(element.getAttribute("href"))
+    },
+    styles: {
+      align: getImportedAlign(element, styles),
+      backgroundColor: getImportedBackground(styles, APP_CONFIG.brand?.primary || "#32ce32"),
+      color: getImportedTextColor(styles, "#041004"),
+      radius: readPixelValue(readStyleValue(styles, ["border-radius"]), 999),
+      fontSize: readPixelValue(readStyleValue(styles, ["font-size"]), 15),
+      fontWeight: readPixelValue(readStyleValue(styles, ["font-weight"]), 700),
+      paddingTop: readPixelValue(readStyleValue(styles, ["padding-top", "padding"]), 14),
+      paddingBottom: readPixelValue(readStyleValue(styles, ["padding-bottom", "padding"]), 14),
+      paddingX: getImportedPaddingX(styles, 24),
+      outerPaddingTop: getImportedPaddingTop(styles, 8),
+      outerPaddingBottom: getImportedPaddingBottom(styles, 20)
+    }
+  });
+}
+
+function createImportedDividerBlock(element, index) {
+  const styles = parseStyleAttribute(element.getAttribute("style"));
+
+  return createBlock("divider", {
+    name: buildImportedBlockName("divider", index),
+    styles: {
+      color: readStyleValue(styles, ["border-color", "color"], "#d9e5d9"),
+      paddingTop: getImportedPaddingTop(styles, 18),
+      paddingBottom: getImportedPaddingBottom(styles, 18),
+      paddingX: getImportedPaddingX(styles, 40)
+    }
+  });
+}
+
+function createImportedSpacerBlock(element, index) {
+  const styles = parseStyleAttribute(element.getAttribute("style"));
+  const height = readPixelValue(
+    readStyleValue(styles, ["height", "min-height", "padding-top", "padding-bottom"]),
+    24
+  );
+
+  if (!height || height < 18) {
+    return null;
+  }
+
+  return createBlock("spacer", {
+    name: buildImportedBlockName("spacer", index),
+    styles: {
+      height
+    }
+  });
+}
+
+function dedupeImportedBlocks(blocks) {
+  return blocks.filter((block, index) => {
+    const previous = blocks[index - 1];
+    if (!previous) {
+      return true;
+    }
+
+    if (block.type !== previous.type) {
+      return true;
+    }
+
+    if (block.type === "spacer") {
+      return Number(block.styles?.height || 0) !== Number(previous.styles?.height || 0);
+    }
+
+    if (block.type === "divider") {
+      return false;
+    }
+
+    const blockText = normalizeImportedText(
+      block.content?.text || block.content?.label || block.content?.src || ""
+    );
+    const previousText = normalizeImportedText(
+      previous.content?.text || previous.content?.label || previous.content?.src || ""
+    );
+
+    return blockText !== previousText;
+  });
+}
+
+function shouldIgnoreImportedElement(element) {
+  return importIgnoredTags.has(element.tagName.toUpperCase());
+}
+
+function extractImportedBlocks(root) {
+  const blocks = [];
+
+  function visit(element) {
+    if (!element || shouldIgnoreImportedElement(element)) {
+      return;
+    }
+
+    const tagName = element.tagName.toUpperCase();
+    const nextIndex = () => blocks.length + 1;
+
+    if (tagName === "IMG") {
+      const block = createImportedImageBlock(element, nextIndex());
+      if (block) {
+        blocks.push(block);
+      }
+      return;
+    }
+
+    if (tagName === "HR") {
+      blocks.push(createImportedDividerBlock(element, nextIndex()));
+      return;
+    }
+
+    if (/^H[1-6]$/.test(tagName)) {
+      const block = createImportedHeadingBlock(element, nextIndex());
+      if (block) {
+        blocks.push(block);
+      }
+      return;
+    }
+
+    if (tagName === "A") {
+      const block = createImportedButtonBlock(element, nextIndex());
+      if (block) {
+        blocks.push(block);
+        return;
+      }
+    }
+
+    if (["P", "LI", "BLOCKQUOTE"].includes(tagName)) {
+      const block = createImportedParagraphBlock(element, nextIndex());
+      if (block) {
+        blocks.push(block);
+      }
+      return;
+    }
+
+    if (importContainerTags.has(tagName)) {
+      const beforeChildren = blocks.length;
+      Array.from(element.children).forEach((child) => visit(child));
+
+      if (blocks.length > beforeChildren) {
+        return;
+      }
+
+      const textBlock = createImportedParagraphBlock(element, nextIndex());
+      if (textBlock) {
+        blocks.push(textBlock);
+        return;
+      }
+
+      const spacerBlock = createImportedSpacerBlock(element, nextIndex());
+      if (spacerBlock) {
+        blocks.push(spacerBlock);
+      }
+      return;
+    }
+
+    const paragraphBlock = createImportedParagraphBlock(element, nextIndex());
+    if (paragraphBlock) {
+      blocks.push(paragraphBlock);
+    }
+  }
+
+  Array.from(root.children).forEach((child) => visit(child));
+  return dedupeImportedBlocks(blocks);
+}
+
+function detectImportedCanvas(doc) {
+  const body = doc.body;
+  const bodyStyles = parseStyleAttribute(body?.getAttribute("style"));
+  const firstSurface = body?.querySelector("table[style], div[style], section[style], article[style]");
+  const surfaceStyles = parseStyleAttribute(firstSurface?.getAttribute?.("style") || "");
+
+  return {
+    ...defaultCanvas,
+    bodyBackground: getImportedBackground(bodyStyles, defaultCanvas.bodyBackground),
+    emailBackground: getImportedBackground(surfaceStyles, defaultCanvas.emailBackground),
+    width: readPixelValue(
+      firstSurface?.getAttribute?.("width") || readStyleValue(surfaceStyles, ["width"]),
+      defaultCanvas.width
+    ),
+    radius: readPixelValue(readStyleValue(surfaceStyles, ["border-radius"]), defaultCanvas.radius)
+  };
+}
+
+export function importTemplateHtml(html = "", options = {}) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(String(html || ""), "text/html");
+  const canvas = detectImportedCanvas(doc);
+  const importedBlocks = extractImportedBlocks(doc.body);
+
+  const blocks = importedBlocks.length
+    ? importedBlocks
+    : [
+        createBlock("paragraph", {
+          name: "Imported Content",
+          content: {
+            text:
+              normalizeImportedText(doc.body?.textContent || "") ||
+              "Imported HTML did not contain any recognisable editable blocks."
+          },
+          styles: {
+            align: "left",
+            color: "#4a4a4a",
+            fontSize: 16,
+            lineHeight: 1.7,
+            paddingTop: 24,
+            paddingBottom: 24,
+            paddingX: 32
+          }
+        })
+      ];
+
+  return {
+    name: options.name || doc.title || "Imported Template",
+    subject: options.subject || "{{team_name}} update for {{company_name}}",
+    design: normalizeTemplateDesign({
+      canvas,
+      blocks
+    })
+  };
+}
+
 function getTokenMap(company = {}) {
   const firstName = String(company.contactName || "").split(/\s+/).filter(Boolean)[0] || "there";
 
@@ -453,41 +925,7 @@ function readStoredTemplates() {
 }
 
 function createLegacyDesignFromHtml(html = "") {
-  return {
-    canvas: { ...defaultCanvas },
-    blocks: [
-      {
-        id: createId(),
-        type: "paragraph",
-        name: "Legacy HTML",
-        content: { text: "This template was created before the visual editor. Replace it with new blocks." },
-        styles: {
-          align: "left",
-          color: "#4a4a4a",
-          fontSize: 16,
-          lineHeight: 1.7,
-          paddingTop: 24,
-          paddingBottom: 24,
-          paddingX: 32
-        }
-      },
-      {
-        id: createId(),
-        type: "paragraph",
-        name: "Legacy Source",
-        content: { text: html },
-        styles: {
-          align: "left",
-          color: "#4a4a4a",
-          fontSize: 13,
-          lineHeight: 1.6,
-          paddingTop: 0,
-          paddingBottom: 28,
-          paddingX: 32
-        }
-      }
-    ]
-  };
+  return importTemplateHtml(html).design;
 }
 
 export function ensureTemplateDesign(template) {
@@ -640,7 +1078,19 @@ export const templateService = {
       html: renderTemplateHtmlFromDesign(design)
     });
   },
+  createImportedTemplate({ name = "", subject = "", html = "" } = {}) {
+    const imported = importTemplateHtml(html, { name, subject });
+
+    return createTemplate({
+      name: imported.name,
+      category: "Imported",
+      subject: imported.subject,
+      design: imported.design,
+      html: renderTemplateHtmlFromDesign(imported.design)
+    });
+  },
   createBlock,
+  importTemplateHtml,
   normalizeTemplateDesign,
   renderTemplateHtmlFromDesign
 };

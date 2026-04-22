@@ -600,7 +600,8 @@ textarea {
   font-size: 0.98rem;
 }
 
-.builder-card span {
+.builder-card span,
+.builder-card small {
   color: var(--muted);
   font-size: 0.85rem;
   line-height: 1.5;
@@ -673,6 +674,130 @@ textarea {
   grid-template-columns: minmax(0, 1.3fr) minmax(320px, 0.7fr);
   gap: 1rem;
   align-items: start;
+}
+
+.template-hub-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.mailbox-grid {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.85fr) minmax(0, 1.15fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.mailbox-stack {
+  display: grid;
+  gap: 1rem;
+}
+
+.mailbox-actions,
+.mail-message-head,
+.mailbox-status-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.mailbox-actions {
+  justify-content: flex-end;
+}
+
+.mailbox-status-row {
+  color: var(--muted);
+}
+
+.mailbox-status-text {
+  font-size: 0.92rem;
+}
+
+.mailbox-search {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.85rem;
+  align-items: end;
+  margin-bottom: 1rem;
+}
+
+.mailbox-list {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.mail-item {
+  width: 100%;
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.95rem 1rem;
+  text-align: left;
+  border-radius: 18px;
+  border: 1px solid rgba(22, 49, 26, 0.08);
+  background: #fbfef9;
+  color: var(--text);
+}
+
+.mail-item span,
+.mail-item small,
+.mail-compose-note,
+.mail-message-meta {
+  color: var(--muted);
+}
+
+.mail-item:hover,
+.mail-item.is-active {
+  border-color: rgba(50, 206, 50, 0.22);
+  background: rgba(50, 206, 50, 0.08);
+}
+
+.mail-message,
+.mail-compose,
+.mailbox-empty {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.mail-message-head {
+  justify-content: space-between;
+  align-items: start;
+}
+
+.mail-message-head h3,
+.mail-compose-head h3,
+.mailbox-empty h3 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.mail-message-meta {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.mail-message-body {
+  padding: 1rem;
+  border-radius: 18px;
+  background: #f7fbf5;
+}
+
+.mail-message-body pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: inherit;
+  line-height: 1.7;
+  color: var(--text);
+}
+
+.mail-compose-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 0.75rem;
 }
 
 .template-card-stack,
@@ -931,6 +1056,21 @@ textarea {
   padding-top: 0.25rem;
 }
 
+.import-panel {
+  display: grid;
+  gap: 0.85rem;
+  padding: 0.95rem;
+  border-radius: 20px;
+  background: #f7fbf5;
+  border: 1px solid rgba(22, 49, 26, 0.06);
+}
+
+.import-panel__actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
 .variable-group {
   display: grid;
   gap: 0.6rem;
@@ -1021,9 +1161,20 @@ textarea {
   outline-offset: 0;
 }
 
+.canvas-block-stack,
+.layer-drop-stack,
+.layer-item-stack {
+  display: grid;
+  gap: 0.5rem;
+}
+
 .canvas-block {
   position: relative;
+  display: grid;
+  gap: 0.7rem;
   border: 1px dashed transparent;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.6);
   transition: border-color 0.2s ease, transform 0.2s ease;
 }
 
@@ -1031,8 +1182,51 @@ textarea {
   border-color: rgba(50, 206, 50, 0.28);
 }
 
+.canvas-block__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.65rem 0.8rem 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.canvas-block__toolbar strong {
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
 .canvas-block__content {
   pointer-events: none;
+}
+
+.editor-dropzone {
+  min-height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  border: 1px dashed rgba(50, 206, 50, 0.22);
+  background: rgba(50, 206, 50, 0.04);
+  color: var(--muted);
+  font-size: 0.78rem;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+
+.editor-dropzone--compact {
+  min-height: 30px;
+  border-radius: 12px;
+  font-size: 0.72rem;
+}
+
+.editor-dropzone.is-active {
+  background: rgba(50, 206, 50, 0.14);
+  border-color: rgba(50, 206, 50, 0.56);
+  color: var(--text);
+}
+
+.is-editor-dragging .editor-dropzone {
+  opacity: 1;
 }
 
 .inspector-group {
@@ -1292,6 +1486,7 @@ textarea {
   }
 
   .template-hub-grid,
+  .mailbox-grid,
   .editor-layout,
   .editor-subheader {
     grid-template-columns: 1fr;
@@ -1323,6 +1518,7 @@ textarea {
   }
 
   .toolbar,
+  .mailbox-search,
   .company-metrics,
   .company-detail-grid,
   .form-grid,

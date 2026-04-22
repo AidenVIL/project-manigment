@@ -5,12 +5,14 @@ import { buildCalendarEvents, buildCalendarSummary } from "./services/calendar-s
 import { companyService } from "./services/company-service.js";
 import { buildDashboardSnapshot } from "./services/dashboard-service.js";
 import { draftService } from "./services/draft-service.js";
+import { gmailService } from "./services/gmail-service.js";
 import { templateService } from "./services/template-service.js";
 import { renderCompanyModal } from "./ui/components/modal.js";
 import { renderAuthView } from "./ui/views/auth-view.js";
 import { renderCalendarView } from "./ui/views/calendar-view.js";
 import { renderCompaniesView } from "./ui/views/companies-view.js";
 import { renderDashboardView } from "./ui/views/dashboard-view.js";
+import { renderMailboxView } from "./ui/views/mailbox-view.js";
 import { renderTemplateEditorView } from "./ui/views/template-editor-view.js";
 import { renderEmailStudioView } from "./ui/views/template-hub-view.js";
 import { addDaysToInputDate } from "./utils/date-utils.js";
@@ -40,7 +42,21 @@ const state = {
   },
   modal: {
     open: false,
-    companyId: ""
+    companyId: "",
+    draft: createCompany(),
+    saving: false,
+    error: ""
+  },
+  mailbox: {
+    loading: false,
+    connected: false,
+    connectUrl: gmailService.getConnectUrl(),
+    emailAddress: "",
+    query: "",
+    messages: [],
+    selectedMessageId: "",
+    selectedMessage: null,
+    error: ""
   },
   preferredCompanyId: "",
   editor: null,
@@ -48,6 +64,9 @@ const state = {
 };
 
 let toastTimer = null;
+let shouldRestoreEditorFocus = false;
+let currentEditorDrag = null;
+let activeDropZone = null;
 
 function clone(value) {
   return structuredClone(value);
@@ -89,11 +108,8 @@ function getEditorCompany(editor = state.editor) {
 }
 
 function getModalCompany() {
-  if (!state.modal.companyId) {
-    return {
-      ...createCompany(),
-      id: ""
-    };
+  if (state.modal.open) {
+    return state.modal.draft || createCompany();
   }
 
   return state.companies.find((company) => company.id === state.modal.companyId) || createCompany();
@@ -123,6 +139,29 @@ function showToast(message) {
     state.toast = "";
     renderApp();
   }, 2800);
+}
+
+function consumeOauthFeedback() {
+  const url = new URL(window.location.href);
+  const gmailState = url.searchParams.get("gmail");
+  const gmailError = url.searchParams.get("gmail_error");
+
+  if (!gmailState && !gmailError) {
+    return;
+  }
+
+  if (gmailState === "connected") {
+    showToast("Gmail connected.");
+  }
+
+  if (gmailError) {
+    state.mailbox.error = gmailError;
+    showToast(gmailError);
+  }
+
+  url.searchParams.delete("gmail");
+  url.searchParams.delete("gmail_error");
+  window.history.replaceState({}, "", url.toString());
 }
 
 function createEditorState({
@@ -191,6 +230,118 @@ function buildEditorPreview(editor = state.editor) {
   );
 }
 
+function buildTemplateNameFromFilename(filename = "") {
+  const baseName = String(filename || "")
+    .replace(/\.[^.]+$/, "")
+    .replace(/[-_]+/g, " ")
+    .trim();
+
+  if (!baseName) {
+    return "Imported Template";
+  }
+
+  return baseName.replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function clearActiveDropZone() {
+  if (activeDropZone) {
+    activeDropZone.classList.remove("is-active");
+  }
+
+  activeDropZone = null;
+}
+
+function setActiveDropZone(dropZone) {
+  if (activeDropZone === dropZone) {
+    return;
+  }
+
+  clearActiveDropZone();
+
+  if (dropZone) {
+    dropZone.classList.add("is-active");
+    activeDropZone = dropZone;
+  }
+}
+
+function resetEditorDragState() {
+  currentEditorDrag = null;
+  clearActiveDropZone();
+  document.body.classList.remove("is-editor-dragging");
+}
+
+function buildFocusSnapshot(target, base = {}) {
+  const snapshot = { ...base };
+
+  if (typeof target.selectionStart === "number" && typeof target.selectionEnd === "number") {
+    snapshot.selectionStart = target.selectionStart;
+    snapshot.selectionEnd = target.selectionEnd;
+  }
+
+  return snapshot;
+}
+
+function getEditorFocusSelector(target = state.editor?.lastFocusedTarget) {
+  if (!target) {
+    return "";
+  }
+
+  if (target.kind === "subject") {
+    return "#editor-subject";
+  }
+
+  if (target.kind === "name") {
+    return "#editor-name";
+  }
+
+  if (target.kind === "company") {
+    return "#editor-company";
+  }
+
+  if (target.kind === "block-content") {
+    return `[data-editor-scope="block-content"][data-editor-field="${target.field}"]`;
+  }
+
+  if (target.kind === "block-style") {
+    return `[data-editor-scope="block-style"][data-editor-field="${target.field}"]`;
+  }
+
+  if (target.kind === "canvas") {
+    return `[data-editor-scope="canvas"][data-editor-field="${target.field}"]`;
+  }
+
+  return "";
+}
+
+function restoreEditorFocus() {
+  if (!state.editor?.lastFocusedTarget) {
+    return;
+  }
+
+  const selector = getEditorFocusSelector(state.editor.lastFocusedTarget);
+  if (!selector) {
+    return;
+  }
+
+  const input = root.querySelector(selector);
+  if (!input) {
+    return;
+  }
+
+  input.focus({ preventScroll: true });
+
+  if (
+    typeof state.editor.lastFocusedTarget.selectionStart === "number" &&
+    typeof state.editor.lastFocusedTarget.selectionEnd === "number" &&
+    typeof input.setSelectionRange === "function"
+  ) {
+    input.setSelectionRange(
+      state.editor.lastFocusedTarget.selectionStart,
+      state.editor.lastFocusedTarget.selectionEnd
+    );
+  }
+}
+
 function renderShell() {
   const filteredCompanies = getFilteredCompanies();
   const snapshot = buildDashboardSnapshot(state.companies, APP_CONFIG.fundraisingTarget);
@@ -215,6 +366,7 @@ function renderShell() {
           <a href="#overview">Overview</a>
           <a href="#companies">Companies</a>
           <a href="#calendar">Calendar</a>
+          <a href="#mailbox">Mailbox</a>
           <a href="#emails">Email Studio</a>
         </nav>
         <div class="sidebar-panel status-panel">
@@ -242,6 +394,9 @@ function renderShell() {
           totalCompanies: state.companies.length
         })}
         ${renderCalendarView({ events, summary })}
+        ${renderMailboxView({
+          mailbox: state.mailbox
+        })}
         ${renderEmailStudioView({
           templates: state.templates,
           drafts: state.drafts
@@ -285,6 +440,10 @@ function renderApp() {
       company: getEditorCompany(state.editor),
       preview
     });
+    if (shouldRestoreEditorFocus) {
+      restoreEditorFocus();
+      shouldRestoreEditorFocus = false;
+    }
     return;
   }
 
@@ -310,6 +469,8 @@ async function loadAppData() {
     }
 
     syncEditorCompanyOptions();
+    consumeOauthFeedback();
+    await loadMailboxStatus();
     state.loading = false;
     state.loginError = "";
     renderApp();
@@ -331,11 +492,11 @@ async function loadAppData() {
 async function init() {
   if (isPasswordGateEnabled()) {
     state.loading = false;
-    renderApp();
+      renderApp();
 
-    if (authService.isSignedIn()) {
-      await loadAppData();
-    }
+      if (authService.isSignedIn()) {
+        await loadAppData();
+      }
 
     return;
   }
@@ -343,15 +504,93 @@ async function init() {
   await loadAppData();
 }
 
+async function loadMailboxStatus() {
+  try {
+    const status = await gmailService.loadStatus();
+    state.mailbox.connected = Boolean(status.connected);
+    state.mailbox.connectUrl = gmailService.getConnectUrl();
+    state.mailbox.emailAddress = status.emailAddress || "";
+    state.mailbox.error = status.error || "";
+
+    if (!status.connected) {
+      state.mailbox.messages = [];
+      state.mailbox.selectedMessageId = "";
+      state.mailbox.selectedMessage = null;
+      return;
+    }
+
+    await loadMailboxMessages(false);
+  } catch (error) {
+    state.mailbox.connected = false;
+    state.mailbox.error = error.message || "Could not load mailbox status.";
+  }
+}
+
+async function loadMailboxMessages(showSpinner = true) {
+  if (showSpinner) {
+    state.mailbox.loading = true;
+    renderApp();
+  }
+
+  try {
+    const messages = await gmailService.loadMessages(state.mailbox.query);
+    state.mailbox.messages = messages;
+
+    const nextSelectedId =
+      messages.find((message) => message.id === state.mailbox.selectedMessageId)?.id ||
+      messages[0]?.id ||
+      "";
+    state.mailbox.selectedMessageId = nextSelectedId;
+    state.mailbox.selectedMessage = null;
+
+    if (nextSelectedId) {
+      await openMailboxMessage(nextSelectedId, false);
+    }
+  } catch (error) {
+    state.mailbox.error = error.message || "Could not load inbox messages.";
+  } finally {
+    state.mailbox.loading = false;
+    renderApp();
+  }
+}
+
+async function openMailboxMessage(messageId, rerender = true) {
+  try {
+    state.mailbox.selectedMessageId = messageId;
+    const message = await gmailService.loadMessage(messageId);
+    state.mailbox.selectedMessage = message;
+    state.mailbox.error = "";
+  } catch (error) {
+    state.mailbox.error = error.message || "Could not open message.";
+  }
+
+  if (rerender) {
+    renderApp();
+  }
+}
+
 function closeModal() {
   state.modal.open = false;
   state.modal.companyId = "";
+  state.modal.draft = createCompany();
+  state.modal.saving = false;
+  state.modal.error = "";
   renderApp();
 }
 
 function openCompanyModal(companyId = "") {
+  const existingCompany = companyId
+    ? state.companies.find((company) => company.id === companyId) || createCompany()
+    : {
+        ...createCompany(),
+        id: ""
+      };
+
   state.modal.open = true;
   state.modal.companyId = companyId;
+  state.modal.draft = clone(existingCompany);
+  state.modal.saving = false;
+  state.modal.error = "";
   renderApp();
 }
 
@@ -442,6 +681,69 @@ function createNewTemplate() {
   renderApp();
 }
 
+function replaceEditorWithImportedHtml(html, suggestedName = "") {
+  if (!state.editor) {
+    return;
+  }
+
+  const imported = templateService.importTemplateHtml(html, {
+    name: state.editor.nameInput.trim() || suggestedName || "Imported Template",
+    subject: state.editor.subjectInput.trim() || "{{team_name}} update for {{company_name}}"
+  });
+
+  state.editor.design = imported.design;
+  if (!state.editor.nameInput.trim()) {
+    state.editor.nameInput = imported.name;
+  }
+  if (!state.editor.subjectInput.trim()) {
+    state.editor.subjectInput = imported.subject;
+  }
+  state.editor.selectedBlockId = imported.design.blocks[0]?.id || "body";
+  state.editor.sidebarTab = "layers";
+  renderApp();
+  showToast("Imported HTML converted into editable Atomic blocks.");
+}
+
+function openImportedTemplateEditor(html, suggestedName = "") {
+  const importedTemplate = templateService.createImportedTemplate({
+    name: suggestedName || "Imported Template",
+    html
+  });
+
+  state.editor = createEditorState({
+    mode: "template",
+    id: importedTemplate.id,
+    templateId: importedTemplate.id,
+    nameInput: importedTemplate.name,
+    subjectInput: importedTemplate.subject,
+    design: importedTemplate.design,
+    selectedBlockId: importedTemplate.design.blocks[0]?.id || "body"
+  });
+  renderApp();
+  showToast(`${importedTemplate.name} imported and ready to edit.`);
+}
+
+async function importHtmlFile(file, target = "new-template") {
+  if (!file) {
+    return;
+  }
+
+  const html = await file.text();
+  if (!String(html || "").trim()) {
+    showToast("That file was empty.");
+    return;
+  }
+
+  const templateName = buildTemplateNameFromFilename(file.name);
+
+  if (target === "replace-editor") {
+    replaceEditorWithImportedHtml(html, templateName);
+    return;
+  }
+
+  openImportedTemplateEditor(html, templateName);
+}
+
 function findSelectedBlock() {
   if (!state.editor || state.editor.selectedBlockId === "body") {
     return null;
@@ -475,25 +777,49 @@ function rememberEditorFocus(target) {
   }
 
   if (target.id === "editor-subject") {
-    state.editor.lastFocusedTarget = {
+    state.editor.lastFocusedTarget = buildFocusSnapshot(target, {
       kind: "subject"
-    };
+    });
     return;
   }
 
   if (target.id === "editor-name") {
-    state.editor.lastFocusedTarget = {
+    state.editor.lastFocusedTarget = buildFocusSnapshot(target, {
       kind: "name"
+    });
+    return;
+  }
+
+  if (target.id === "editor-company") {
+    state.editor.lastFocusedTarget = {
+      kind: "company"
     };
     return;
   }
 
   if (target.dataset.editorScope === "block-content") {
-    state.editor.lastFocusedTarget = {
+    state.editor.lastFocusedTarget = buildFocusSnapshot(target, {
       kind: "block-content",
       blockId: state.editor.selectedBlockId,
       field: target.dataset.editorField
-    };
+    });
+    return;
+  }
+
+  if (target.dataset.editorScope === "block-style") {
+    state.editor.lastFocusedTarget = buildFocusSnapshot(target, {
+      kind: "block-style",
+      blockId: state.editor.selectedBlockId,
+      field: target.dataset.editorField
+    });
+    return;
+  }
+
+  if (target.dataset.editorScope === "canvas") {
+    state.editor.lastFocusedTarget = buildFocusSnapshot(target, {
+      kind: "canvas",
+      field: target.dataset.editorField
+    });
   }
 }
 
@@ -506,12 +832,14 @@ function insertTokenIntoEditor(token) {
 
   if (target?.kind === "subject") {
     state.editor.subjectInput = `${state.editor.subjectInput}${token}`;
+    shouldRestoreEditorFocus = true;
     renderApp();
     return;
   }
 
   if (target?.kind === "name") {
     state.editor.nameInput = `${state.editor.nameInput}${token}`;
+    shouldRestoreEditorFocus = true;
     renderApp();
     return;
   }
@@ -521,6 +849,7 @@ function insertTokenIntoEditor(token) {
     if (block) {
       const currentValue = String(block.content?.[target.field] || "");
       block.content[target.field] = `${currentValue}${token}`;
+      shouldRestoreEditorFocus = true;
       renderApp();
       return;
     }
@@ -529,17 +858,20 @@ function insertTokenIntoEditor(token) {
   const selectedBlock = findSelectedBlock();
   if (selectedBlock && (selectedBlock.type === "heading" || selectedBlock.type === "paragraph")) {
     selectedBlock.content.text = `${selectedBlock.content.text || ""}${token}`;
+    shouldRestoreEditorFocus = true;
     renderApp();
     return;
   }
 
   if (selectedBlock && selectedBlock.type === "button") {
     selectedBlock.content.label = `${selectedBlock.content.label || ""}${token}`;
+    shouldRestoreEditorFocus = true;
     renderApp();
     return;
   }
 
   state.editor.subjectInput = `${state.editor.subjectInput}${token}`;
+  shouldRestoreEditorFocus = true;
   renderApp();
 }
 
@@ -557,6 +889,59 @@ function addBlockToEditor(type) {
   state.editor.selectedBlockId = nextBlock.id;
   state.editor.sidebarTab = "layers";
   renderApp();
+}
+
+function insertBlockAtIndex(type, targetIndex) {
+  if (!state.editor) {
+    return;
+  }
+
+  const block = templateService.createBlock(type);
+  const blocks = state.editor.design.blocks;
+  const safeIndex = Math.max(0, Math.min(targetIndex, blocks.length));
+  blocks.splice(safeIndex, 0, block);
+  state.editor.selectedBlockId = block.id;
+  state.editor.sidebarTab = "layers";
+}
+
+function moveBlockToIndex(blockId, targetIndex) {
+  if (!state.editor) {
+    return;
+  }
+
+  const blocks = state.editor.design.blocks;
+  const currentIndex = blocks.findIndex((block) => block.id === blockId);
+  if (currentIndex < 0) {
+    return;
+  }
+
+  const boundedTarget = Math.max(0, Math.min(targetIndex, blocks.length));
+  if (boundedTarget === currentIndex || boundedTarget === currentIndex + 1) {
+    state.editor.selectedBlockId = blockId;
+    return;
+  }
+
+  const [block] = blocks.splice(currentIndex, 1);
+  const adjustedTarget = currentIndex < boundedTarget ? boundedTarget - 1 : boundedTarget;
+  blocks.splice(adjustedTarget, 0, block);
+  state.editor.selectedBlockId = block.id;
+}
+
+function handleEditorDrop(targetIndex) {
+  if (!state.editor || !currentEditorDrag) {
+    return;
+  }
+
+  if (currentEditorDrag.kind === "new-block") {
+    insertBlockAtIndex(currentEditorDrag.blockType, targetIndex);
+    renderApp();
+    return;
+  }
+
+  if (currentEditorDrag.kind === "existing-block") {
+    moveBlockToIndex(currentEditorDrag.blockId, targetIndex);
+    renderApp();
+  }
 }
 
 function moveSelectedBlock(direction) {
@@ -613,6 +998,13 @@ async function handleCompanySubmit(form) {
   payload.askValue = Number(payload.askValue || 0);
   payload.contributionValue = Number(payload.contributionValue || 0);
   payload.lastUpdated = new Date().toISOString();
+  state.modal.draft = {
+    ...state.modal.draft,
+    ...payload
+  };
+  state.modal.saving = true;
+  state.modal.error = "";
+  renderApp();
 
   try {
     const savedCompany = await companyService.saveCompany(payload);
@@ -623,6 +1015,9 @@ async function handleCompanySubmit(form) {
     showToast(`${savedCompany.companyName} saved.`);
   } catch (error) {
     console.error(error);
+    state.modal.saving = false;
+    state.modal.error = error.message || "Could not save company.";
+    renderApp();
     showToast(error.message || "Could not save company.");
   }
 }
@@ -767,6 +1162,9 @@ root.addEventListener("click", async (event) => {
     case "new-template":
       createNewTemplate();
       return;
+    case "open-template-import":
+      root.querySelector("#template-import-input")?.click();
+      return;
     case "open-template-editor":
       openTemplateEditor(id);
       return;
@@ -775,6 +1173,30 @@ root.addEventListener("click", async (event) => {
       return;
     case "open-saved-draft":
       openSavedDraft(id);
+      return;
+    case "refresh-mailbox":
+      await loadMailboxMessages();
+      return;
+    case "open-mailbox-message":
+      await openMailboxMessage(id);
+      return;
+    case "disconnect-gmail":
+      try {
+        await gmailService.disconnect();
+        state.mailbox = {
+          ...state.mailbox,
+          connected: false,
+          emailAddress: "",
+          messages: [],
+          selectedMessageId: "",
+          selectedMessage: null,
+          error: ""
+        };
+        renderApp();
+        showToast("Gmail disconnected.");
+      } catch (error) {
+        showToast(error.message || "Could not disconnect Gmail.");
+      }
       return;
     case "close-editor":
       closeEditor();
@@ -800,6 +1222,19 @@ root.addEventListener("click", async (event) => {
     case "add-editor-block":
       addBlockToEditor(id);
       return;
+    case "trigger-editor-import-file":
+      root.querySelector("#editor-import-file")?.click();
+      return;
+    case "import-editor-html": {
+      const importInput = root.querySelector("#editor-import-html");
+      const html = importInput?.value || "";
+      if (!String(html).trim()) {
+        showToast("Paste some HTML first.");
+        return;
+      }
+      replaceEditorWithImportedHtml(html);
+      return;
+    }
     case "move-block-up":
       moveSelectedBlock(-1);
       return;
@@ -872,6 +1307,16 @@ root.addEventListener("input", (event) => {
 
   if (event.target.name === "nextFollowUp") {
     event.target.dataset.autoManaged = "false";
+  }
+
+  if (event.target.closest("#company-form")) {
+    const { name, value, type } = event.target;
+    if (name) {
+      state.modal.draft = {
+        ...state.modal.draft,
+        [name]: type === "number" ? Number(value || 0) : value
+      };
+    }
     return;
   }
 
@@ -883,12 +1328,14 @@ root.addEventListener("input", (event) => {
 
   if (event.target.id === "editor-name") {
     state.editor.nameInput = event.target.value;
+    shouldRestoreEditorFocus = true;
     renderApp();
     return;
   }
 
   if (event.target.id === "editor-subject") {
     state.editor.subjectInput = event.target.value;
+    shouldRestoreEditorFocus = true;
     renderApp();
     return;
   }
@@ -896,6 +1343,7 @@ root.addEventListener("input", (event) => {
   if (event.target.dataset.editorScope === "canvas") {
     const field = event.target.dataset.editorField;
     state.editor.design.canvas[field] = coerceEditorValue(event.target.value, event.target.type);
+    shouldRestoreEditorFocus = true;
     renderApp();
     return;
   }
@@ -905,6 +1353,7 @@ root.addEventListener("input", (event) => {
     updateSelectedBlock((block) => {
       block.content[field] = event.target.value;
     });
+    shouldRestoreEditorFocus = true;
     renderApp();
     return;
   }
@@ -914,14 +1363,39 @@ root.addEventListener("input", (event) => {
     updateSelectedBlock((block) => {
       block.styles[field] = coerceEditorValue(event.target.value, event.target.type);
     });
+    shouldRestoreEditorFocus = true;
     renderApp();
   }
 });
 
-root.addEventListener("change", (event) => {
+root.addEventListener("change", async (event) => {
   if (event.target.id === "status-filter") {
     state.filters.status = event.target.value;
     renderApp();
+    return;
+  }
+
+  if (event.target.id === "template-import-input") {
+    try {
+      await importHtmlFile(event.target.files?.[0], "new-template");
+    } catch (error) {
+      console.error(error);
+      showToast(error.message || "Could not import that HTML template.");
+    } finally {
+      event.target.value = "";
+    }
+    return;
+  }
+
+  if (event.target.id === "editor-import-file") {
+    try {
+      await importHtmlFile(event.target.files?.[0], "replace-editor");
+    } catch (error) {
+      console.error(error);
+      showToast(error.message || "Could not import that HTML into the editor.");
+    } finally {
+      event.target.value = "";
+    }
     return;
   }
 
@@ -942,8 +1416,81 @@ root.addEventListener("change", (event) => {
     updateSelectedBlock((block) => {
       block.styles[field] = event.target.value;
     });
+    shouldRestoreEditorFocus = true;
     renderApp();
   }
+});
+
+root.addEventListener("dragstart", (event) => {
+  if (!state.editor) {
+    return;
+  }
+
+  const dragTarget = event.target.closest("[data-drag-kind]");
+  if (!dragTarget) {
+    return;
+  }
+
+  if (dragTarget.dataset.dragKind === "new-block") {
+    currentEditorDrag = {
+      kind: "new-block",
+      blockType: dragTarget.dataset.blockType || dragTarget.dataset.id
+    };
+  } else if (dragTarget.dataset.dragKind === "existing-block") {
+    currentEditorDrag = {
+      kind: "existing-block",
+      blockId: dragTarget.dataset.id
+    };
+  }
+
+  if (!currentEditorDrag) {
+    return;
+  }
+
+  document.body.classList.add("is-editor-dragging");
+
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", JSON.stringify(currentEditorDrag));
+  }
+});
+
+root.addEventListener("dragover", (event) => {
+  if (!currentEditorDrag) {
+    return;
+  }
+
+  const dropZone = event.target.closest("[data-drop-index]");
+  if (!dropZone) {
+    return;
+  }
+
+  event.preventDefault();
+  setActiveDropZone(dropZone);
+
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = "move";
+  }
+});
+
+root.addEventListener("drop", (event) => {
+  if (!currentEditorDrag) {
+    return;
+  }
+
+  const dropZone = event.target.closest("[data-drop-index]");
+  if (!dropZone) {
+    resetEditorDragState();
+    return;
+  }
+
+  event.preventDefault();
+  handleEditorDrop(Number(dropZone.dataset.dropIndex || 0));
+  resetEditorDragState();
+});
+
+root.addEventListener("dragend", () => {
+  resetEditorDragState();
 });
 
 root.addEventListener("focusin", (event) => {
@@ -960,6 +1507,31 @@ root.addEventListener("submit", async (event) => {
 
   if (event.target.id === "company-form") {
     await handleCompanySubmit(event.target);
+    return;
+  }
+
+  if (event.target.id === "mailbox-search-form") {
+    const formData = new FormData(event.target);
+    state.mailbox.query = String(formData.get("query") || "");
+    await loadMailboxMessages();
+    return;
+  }
+
+  if (event.target.id === "gmail-compose-form") {
+    const formData = new FormData(event.target);
+
+    try {
+      await gmailService.sendMessage({
+        to: String(formData.get("to") || ""),
+        subject: String(formData.get("subject") || ""),
+        htmlBody: String(formData.get("htmlBody") || "")
+      });
+      event.target.reset();
+      await loadMailboxMessages(false);
+      showToast("Email sent from Gmail.");
+    } catch (error) {
+      showToast(error.message || "Could not send Gmail message.");
+    }
   }
 });
 

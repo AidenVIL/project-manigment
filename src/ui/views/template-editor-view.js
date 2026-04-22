@@ -18,6 +18,14 @@ function renderTabButtons(activeTab) {
     .join("");
 }
 
+function renderDropZone(index, compact = false) {
+  return `
+    <div class="editor-dropzone ${compact ? "editor-dropzone--compact" : ""}" data-drop-index="${index}">
+      <span>Drop block here</span>
+    </div>
+  `;
+}
+
 function renderLayersPanel(editor) {
   return `
     <div class="editor-pane-list">
@@ -25,21 +33,29 @@ function renderLayersPanel(editor) {
         <span>Body</span>
         <small>Canvas</small>
       </button>
-      ${editor.design.blocks
-        .map(
-          (block, index) => `
-            <button
-              type="button"
-              class="layer-row ${editor.selectedBlockId === block.id ? "is-active" : ""}"
-              data-action="select-editor-block"
-              data-id="${block.id}"
-            >
-              <span>${index + 1}. ${escapeHtml(block.name || block.type)}</span>
-              <small>${escapeHtml(block.type)}</small>
-            </button>
-          `
-        )
-        .join("")}
+      <div class="layer-drop-stack">
+        ${renderDropZone(0, true)}
+        ${editor.design.blocks
+          .map(
+            (block, index) => `
+              <div class="layer-item-stack">
+                <button
+                  type="button"
+                  class="layer-row ${editor.selectedBlockId === block.id ? "is-active" : ""}"
+                  data-action="select-editor-block"
+                  data-id="${block.id}"
+                  draggable="true"
+                  data-drag-kind="existing-block"
+                >
+                  <span>${index + 1}. ${escapeHtml(block.name || block.type)}</span>
+                  <small>${escapeHtml(block.type)}</small>
+                </button>
+                ${renderDropZone(index + 1, true)}
+              </div>
+            `
+          )
+          .join("")}
+      </div>
     </div>
   `;
 }
@@ -85,20 +101,53 @@ function renderVariablesPanel(previewTokens) {
   `;
 }
 
-function renderBlocksPanel(previewTokens) {
+function renderBlocksPanel(editor, previewTokens) {
   return `
     <div class="editor-pane-list">
+      <div class="import-panel">
+        <div class="editor-section-label">
+          <span class="eyebrow">Import</span>
+          <p>Bring in an older HTML email and convert it into editable Atomic blocks.</p>
+        </div>
+        <div class="import-panel__actions">
+          <button type="button" class="ghost-button" data-action="trigger-editor-import-file">Import HTML File</button>
+        </div>
+        <input id="editor-import-file" type="file" accept=".html,.htm,.txt,text/html" hidden />
+        <label class="field">
+          <span>Paste HTML</span>
+          <textarea
+            id="editor-import-html"
+            rows="8"
+            placeholder="Paste an existing email template here. We will try to recognise headings, body copy, images, dividers, and buttons."
+          ></textarea>
+        </label>
+        <button type="button" class="primary-button" data-action="import-editor-html">
+          Replace With Imported HTML
+        </button>
+        <small class="field-hint">
+          Your current ${editor.mode === "template" ? "template" : "draft"} stays editable after import.
+        </small>
+      </div>
       <div class="editor-section-label">
         <span class="eyebrow">Blocks</span>
-        <p>Add a content block, then edit it on the right.</p>
+        <p>Click or drag a block onto the canvas, then edit it on the right.</p>
       </div>
       <div class="block-grid">
         ${blockDefinitions
           .map(
             (block) => `
-              <button type="button" class="builder-card" data-action="add-editor-block" data-id="${block.id}">
+              <button
+                type="button"
+                class="builder-card"
+                data-action="add-editor-block"
+                data-id="${block.id}"
+                draggable="true"
+                data-drag-kind="new-block"
+                data-block-type="${block.id}"
+              >
                 <strong>${escapeHtml(block.label)}</strong>
                 <span>${escapeHtml(`Add a ${block.label.toLowerCase()} block to the email.`)}</span>
+                <small>Drag onto the page</small>
               </button>
             `
           )
@@ -120,21 +169,33 @@ function renderCanvas(design, company, selectedBlockId, device) {
           data-action="select-editor-body"
           style="background:${design.canvas.emailBackground}; border-radius:${Number(design.canvas.radius || 0)}px;"
         >
-          ${design.blocks
-            .map(
-              (block) => `
-                <div
-                  class="canvas-block ${selectedBlockId === block.id ? "is-selected" : ""}"
-                  data-action="select-editor-block"
-                  data-id="${block.id}"
-                >
-                  <div class="canvas-block__content">
-                    ${renderBlockHtml(block, company, design.canvas)}
+          <div class="canvas-block-stack">
+            ${renderDropZone(0)}
+            ${design.blocks
+              .map(
+                (block, index) => `
+                  <div class="canvas-block-shell">
+                    <div
+                      class="canvas-block ${selectedBlockId === block.id ? "is-selected" : ""}"
+                      data-action="select-editor-block"
+                      data-id="${block.id}"
+                      draggable="true"
+                      data-drag-kind="existing-block"
+                    >
+                      <div class="canvas-block__toolbar">
+                        <strong>${escapeHtml(block.name || block.type)}</strong>
+                        <small>Drag to move</small>
+                      </div>
+                      <div class="canvas-block__content">
+                        ${renderBlockHtml(block, company, design.canvas)}
+                      </div>
+                    </div>
+                    ${renderDropZone(index + 1)}
                   </div>
-                </div>
-              `
-            )
-            .join("")}
+                `
+              )
+              .join("")}
+          </div>
         </div>
       </div>
     </div>
@@ -353,7 +414,7 @@ export function renderTemplateEditorView({ editor, company, preview }) {
           ${
             editor.sidebarTab === "layers"
               ? renderLayersPanel(editor)
-              : renderBlocksPanel(preview.tokens || {})
+              : renderBlocksPanel(editor, preview.tokens || {})
           }
         </aside>
         <section class="editor-canvas-area">

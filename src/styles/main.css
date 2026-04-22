@@ -600,7 +600,8 @@ textarea {
   font-size: 0.98rem;
 }
 
-.builder-card span {
+.builder-card span,
+.builder-card small {
   color: var(--muted);
   font-size: 0.85rem;
   line-height: 1.5;
@@ -673,6 +674,13 @@ textarea {
   grid-template-columns: minmax(0, 1.3fr) minmax(320px, 0.7fr);
   gap: 1rem;
   align-items: start;
+}
+
+.template-hub-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
 }
 
 .mailbox-grid {
@@ -1048,6 +1056,21 @@ textarea {
   padding-top: 0.25rem;
 }
 
+.import-panel {
+  display: grid;
+  gap: 0.85rem;
+  padding: 0.95rem;
+  border-radius: 20px;
+  background: #f7fbf5;
+  border: 1px solid rgba(22, 49, 26, 0.06);
+}
+
+.import-panel__actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
 .variable-group {
   display: grid;
   gap: 0.6rem;
@@ -1138,9 +1161,20 @@ textarea {
   outline-offset: 0;
 }
 
+.canvas-block-stack,
+.layer-drop-stack,
+.layer-item-stack {
+  display: grid;
+  gap: 0.5rem;
+}
+
 .canvas-block {
   position: relative;
+  display: grid;
+  gap: 0.7rem;
   border: 1px dashed transparent;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.6);
   transition: border-color 0.2s ease, transform 0.2s ease;
 }
 
@@ -1148,8 +1182,51 @@ textarea {
   border-color: rgba(50, 206, 50, 0.28);
 }
 
+.canvas-block__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.65rem 0.8rem 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.canvas-block__toolbar strong {
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
 .canvas-block__content {
   pointer-events: none;
+}
+
+.editor-dropzone {
+  min-height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  border: 1px dashed rgba(50, 206, 50, 0.22);
+  background: rgba(50, 206, 50, 0.04);
+  color: var(--muted);
+  font-size: 0.78rem;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+
+.editor-dropzone--compact {
+  min-height: 30px;
+  border-radius: 12px;
+  font-size: 0.72rem;
+}
+
+.editor-dropzone.is-active {
+  background: rgba(50, 206, 50, 0.14);
+  border-color: rgba(50, 206, 50, 0.56);
+  color: var(--text);
+}
+
+.is-editor-dragging .editor-dropzone {
+  opacity: 1;
 }
 
 .inspector-group {
