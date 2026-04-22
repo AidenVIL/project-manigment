@@ -526,6 +526,25 @@ textarea {
   margin: 0;
 }
 
+.month-calendar__header,
+.month-calendar__nav,
+.workflow-actions,
+.workflow-preview__head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.month-calendar__header,
+.workflow-preview__head {
+  justify-content: space-between;
+}
+
+.month-calendar__nav,
+.workflow-actions {
+  flex-wrap: wrap;
+}
+
 .month-calendar__labels,
 .month-calendar__week {
   display: grid;
@@ -629,6 +648,10 @@ textarea {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
   gap: 1rem;
+}
+
+.month-agenda__button {
+  justify-self: start;
 }
 
 .month-agenda__item p,
@@ -1456,6 +1479,10 @@ textarea {
   box-shadow: var(--shadow);
 }
 
+.modal-card--workflow {
+  width: min(1180px, 100%);
+}
+
 .modal-header h3 {
   font-size: 2rem;
 }
@@ -1522,6 +1549,47 @@ textarea {
   justify-content: flex-end;
   gap: 0.75rem;
   grid-column: span 2;
+}
+
+.workflow-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.workflow-step {
+  display: grid;
+  align-content: start;
+  gap: 0.85rem;
+  padding: 1rem;
+  border-radius: 20px;
+  background: #f7fbf5;
+}
+
+.workflow-step h4 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.workflow-step p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.workflow-preview {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.workflow-preview__body {
+  min-height: 320px;
+  overflow: auto;
+  padding: 1rem;
+  border-radius: 18px;
+  background: #ffffff;
+  border: 1px solid rgba(22, 49, 26, 0.08);
 }
 
 .badge {
@@ -1689,6 +1757,7 @@ textarea {
   .template-hub-grid,
   .mailbox-grid,
   .editor-layout,
+  .workflow-steps,
   .editor-subheader {
     grid-template-columns: 1fr;
   }
@@ -1737,7 +1806,8 @@ textarea {
   .month-calendar__labels,
   .month-calendar__week,
   .writing-coach__summary,
-  .month-agenda__item {
+  .month-agenda__item,
+  .workflow-preview__head {
     grid-template-columns: 1fr;
   }
 

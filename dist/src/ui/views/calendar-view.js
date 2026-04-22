@@ -18,9 +18,14 @@ function renderMonthCalendar(calendarMonth) {
                       .slice(0, 2)
                       .map(
                         (event) => `
-                          <span class="month-calendar__event-pill month-calendar__event-pill--${event.tone}">
+                          <button
+                            type="button"
+                            class="month-calendar__event-pill month-calendar__event-pill--${event.tone}"
+                            data-action="open-follow-up-workflow"
+                            data-id="${event.id}"
+                          >
                             ${escapeHtml(event.type)} · ${escapeHtml(event.companyName)}
-                          </span>
+                          </button>
                         `
                       )
                       .join("")}
@@ -48,6 +53,14 @@ function renderMonthCalendar(calendarMonth) {
                 <strong>${formatDate(event.date)}</strong>
                 <small>${escapeHtml(formatRelativeCountdown(event.daysAway))}</small>
               </div>
+              <button
+                type="button"
+                class="ghost-button month-agenda__button"
+                data-action="open-follow-up-workflow"
+                data-id="${event.id}"
+              >
+                Use This Follow-Up
+              </button>
             </article>
           `
         )
@@ -65,6 +78,11 @@ function renderMonthCalendar(calendarMonth) {
         <div>
           <span class="eyebrow">Monthly Calendar</span>
           <h3>${escapeHtml(calendarMonth.monthLabel)}</h3>
+        </div>
+        <div class="month-calendar__nav">
+          <button type="button" class="ghost-button" data-action="calendar-month-prev">Previous</button>
+          <button type="button" class="ghost-button" data-action="calendar-month-today">This Month</button>
+          <button type="button" class="ghost-button" data-action="calendar-month-next">Next</button>
         </div>
       </div>
       <div class="month-calendar__labels">
@@ -97,6 +115,14 @@ export function renderCalendarView({ events, summary, calendarMonth }) {
                 <h3>${escapeHtml(event.companyName)}</h3>
                 <p>${escapeHtml(event.description)}</p>
               </div>
+              <button
+                type="button"
+                class="ghost-button"
+                data-action="open-follow-up-workflow"
+                data-id="${event.id}"
+              >
+                Start Follow-Up
+              </button>
             </article>
           `
         )

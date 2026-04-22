@@ -76,10 +76,7 @@ function endOfWeek(date) {
 export function buildCalendarMonthView(events, referenceDate = new Date()) {
   const today = new Date(referenceDate);
   today.setHours(0, 0, 0, 0);
-
-  const activeEvent =
-    events.find((event) => event.daysAway !== null && event.daysAway >= 0) || events[0] || null;
-  const monthAnchor = activeEvent ? new Date(activeEvent.date) : today;
+  const monthAnchor = new Date(today);
   monthAnchor.setDate(1);
   monthAnchor.setHours(0, 0, 0, 0);
 
@@ -113,6 +110,7 @@ export function buildCalendarMonthView(events, referenceDate = new Date()) {
   }
 
   return {
+    monthKey: toDateKey(monthAnchor.toISOString()),
     monthLabel: new Intl.DateTimeFormat("en-GB", {
       month: "long",
       year: "numeric"

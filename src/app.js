@@ -13,6 +13,7 @@ import { gmailService } from "./services/gmail-service.js";
 import { templateService } from "./services/template-service.js";
 import { analyzeEmailWriting } from "./services/writing-coach-service.js";
 import { renderCompanyModal } from "./ui/components/modal.js";
+import { renderFollowUpWorkflowModal } from "./ui/components/follow-up-workflow-modal.js";
 import { renderAuthView } from "./ui/views/auth-view.js";
 import { renderCalendarView } from "./ui/views/calendar-view.js";
 import { renderCompaniesView } from "./ui/views/companies-view.js";
@@ -62,6 +63,16 @@ const state = {
     selectedMessageId: "",
     selectedMessage: null,
     error: ""
+  },
+  calendar: {
+    referenceDate: new Date().toISOString().slice(0, 10),
+    workflow: {
+      open: false,
+      eventId: "",
+      selectedTemplateId: "",
+      sending: false,
+      error: ""
+    }
   },
   preferredCompanyId: "",
   editor: null,
@@ -144,6 +155,55 @@ function getFilteredCompanies() {
 
     return matchesStatus && matchesSearch;
   });
+}
+
+function getCalendarEvents() {
+  return buildCalendarEvents(state.companies);
+}
+
+function getCalendarEventById(eventId) {
+  return getCalendarEvents().find((event) => event.id === eventId) || null;
+}
+
+function shiftCalendarReference(monthDelta) {
+  const nextDate = new Date(state.calendar.referenceDate || new Date().toISOString());
+  nextDate.setDate(1);
+  nextDate.setMonth(nextDate.getMonth() + monthDelta);
+  state.calendar.referenceDate = nextDate.toISOString().slice(0, 10);
+}
+
+function getFollowUpWorkflowContext() {
+  const workflow = state.calendar.workflow;
+  if (!workflow.open) {
+    return null;
+  }
+
+  const event = getCalendarEventById(workflow.eventId);
+  if (!event) {
+    return null;
+  }
+
+  const company = state.companies.find((item) => item.id === event.companyId) || PREVIEW_COMPANY;
+  const selectedTemplate =
+    state.templates.find((template) => template.id === workflow.selectedTemplateId) || null;
+  const preview = selectedTemplate
+    ? templateService.previewTemplate(
+        {
+          subject: selectedTemplate.subject,
+          design: selectedTemplate.design
+        },
+        company
+      )
+    : null;
+
+  return {
+    workflow: {
+      ...workflow,
+      event
+    },
+    company,
+    preview
+  };
 }
 
 function upsertCompanyInState(company) {
@@ -486,10 +546,11 @@ function scheduleEditorFocusRestore() {
 function renderShell() {
   const filteredCompanies = getFilteredCompanies();
   const snapshot = buildDashboardSnapshot(state.companies, APP_CONFIG.fundraisingTarget);
-  const events = buildCalendarEvents(state.companies);
+  const events = getCalendarEvents();
   const summary = buildCalendarSummary(events);
-  const calendarMonth = buildCalendarMonthView(events);
+  const calendarMonth = buildCalendarMonthView(events, state.calendar.referenceDate);
   const modeLabel = isLiveMode() ? "Live Supabase mode" : "Demo mode";
+  const workflowContext = getFollowUpWorkflowContext();
 
   return `
     <div class="site-layout">
@@ -545,6 +606,17 @@ function renderShell() {
         })}
       </main>
       ${renderCompanyModal(state.modal, getModalCompany())}
+      ${
+        workflowContext
+          ? renderFollowUpWorkflowModal({
+              workflow: workflowContext.workflow,
+              templates: state.templates,
+              company: workflowContext.company,
+              preview: workflowContext.preview,
+              gmailConnected: state.mailbox.connected
+            })
+          : ""
+      }
       ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}
     </div>
   `;
@@ -755,6 +827,90 @@ function focusEmailStudioForCompany(companyId) {
   renderApp();
   document.querySelector("#emails")?.scrollIntoView({ behavior: "smooth", block: "start" });
   showToast("Draft mode will now default to that company.");
+}
+
+function openFollowUpWorkflow(eventId) {
+  const event = getCalendarEventById(eventId);
+  if (!event) {
+    showToast("That follow-up could not be found.");
+    return;
+  }
+
+  state.calendar.workflow = {
+    open: true,
+    eventId,
+    selectedTemplateId: state.templates[0]?.id || "",
+    sending: false,
+    error: ""
+  };
+  renderApp();
+}
+
+function closeFollowUpWorkflow() {
+  state.calendar.workflow = {
+    open: false,
+    eventId: "",
+    selectedTemplateId: "",
+    sending: false,
+    error: ""
+  };
+  renderApp();
+}
+
+function openFollowUpDraftEditor() {
+  const context = getFollowUpWorkflowContext();
+  if (!context?.workflow?.selectedTemplateId) {
+    showToast("Choose a template first.");
+    return;
+  }
+
+  closeFollowUpWorkflow();
+  state.preferredCompanyId = context.company.id;
+  openDraftEditorFromTemplate(context.workflow.selectedTemplateId);
+}
+
+async function sendFollowUpEmail() {
+  const context = getFollowUpWorkflowContext();
+  if (!context) {
+    return;
+  }
+
+  if (!context.workflow.selectedTemplateId) {
+    state.calendar.workflow.error = "Choose a template before sending.";
+    renderApp();
+    return;
+  }
+
+  if (!context.company.contactEmail) {
+    state.calendar.workflow.error = "This company does not have a contact email saved yet.";
+    renderApp();
+    return;
+  }
+
+  if (!state.mailbox.connected) {
+    state.calendar.workflow.error = "Connect Gmail in the Mailbox section before sending from here.";
+    renderApp();
+    return;
+  }
+
+  state.calendar.workflow.sending = true;
+  state.calendar.workflow.error = "";
+  renderApp();
+
+  try {
+    await gmailService.sendMessage({
+      to: context.company.contactEmail,
+      subject: context.preview.subject,
+      htmlBody: context.preview.html
+    });
+    await loadMailboxMessages(false);
+    closeFollowUpWorkflow();
+    showToast(`Email sent to ${context.company.companyName}.`);
+  } catch (error) {
+    state.calendar.workflow.sending = false;
+    state.calendar.workflow.error = error.message || "Could not send this follow-up email.";
+    renderApp();
+  }
 }
 
 function openTemplateEditor(templateId) {
@@ -1303,6 +1459,30 @@ root.addEventListener("click", async (event) => {
     case "open-add-company":
       openCompanyModal();
       return;
+    case "calendar-month-prev":
+      shiftCalendarReference(-1);
+      renderApp();
+      return;
+    case "calendar-month-today":
+      state.calendar.referenceDate = new Date().toISOString().slice(0, 10);
+      renderApp();
+      return;
+    case "calendar-month-next":
+      shiftCalendarReference(1);
+      renderApp();
+      return;
+    case "open-follow-up-workflow":
+      openFollowUpWorkflow(id);
+      return;
+    case "close-follow-up-workflow":
+      closeFollowUpWorkflow();
+      return;
+    case "open-follow-up-draft-editor":
+      openFollowUpDraftEditor();
+      return;
+    case "send-follow-up-email":
+      await sendFollowUpEmail();
+      return;
     case "save-company": {
       const form = root.querySelector("#company-form");
       if (!form || state.modal.saving) {
@@ -1614,6 +1794,13 @@ root.addEventListener("change", async (event) => {
     return;
   }
 
+  if (event.target.id === "follow-up-template-select") {
+    state.calendar.workflow.selectedTemplateId = event.target.value;
+    state.calendar.workflow.error = "";
+    renderApp();
+    return;
+  }
+
   if (event.target.id === "template-import-input") {
     try {
       await importHtmlFile(event.target.files?.[0], "new-template");
@@ -1812,6 +1999,11 @@ root.addEventListener("submit", async (event) => {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && currentLayoutDrag) {
     endLayoutDrag();
+    return;
+  }
+
+  if (event.key === "Escape" && state.calendar.workflow.open) {
+    closeFollowUpWorkflow();
     return;
   }
 
