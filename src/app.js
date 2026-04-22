@@ -141,6 +141,21 @@ function getFilteredCompanies() {
   });
 }
 
+function upsertCompanyInState(company) {
+  const exists = state.companies.some((item) => item.id === company.id);
+  const nextCompanies = exists
+    ? state.companies.map((item) => (item.id === company.id ? company : item))
+    : [...state.companies, company];
+
+  state.companies = [...nextCompanies].sort((left, right) => {
+    if (right.contributionValue !== left.contributionValue) {
+      return right.contributionValue - left.contributionValue;
+    }
+
+    return left.companyName.localeCompare(right.companyName);
+  });
+}
+
 function showToast(message) {
   state.toast = message;
   renderApp();
@@ -1139,11 +1154,19 @@ async function handleCompanySubmit(form) {
 
   try {
     const savedCompany = await companyService.saveCompany(payload);
-    state.companies = await companyService.loadCompanies();
+    upsertCompanyInState(savedCompany);
     state.preferredCompanyId = savedCompany.id;
     syncEditorCompanyOptions();
     closeModal();
     showToast(`${savedCompany.companyName} saved.`);
+
+    try {
+      state.companies = await companyService.loadCompanies();
+      syncEditorCompanyOptions();
+      renderApp();
+    } catch (refreshError) {
+      console.warn("Company saved but live refresh failed.", refreshError);
+    }
   } catch (error) {
     console.error(error);
     state.modal.saving = false;
@@ -1247,19 +1270,6 @@ root.addEventListener("click", async (event) => {
     case "open-add-company":
       openCompanyModal();
       return;
-    case "submit-company-form": {
-      const form = root.querySelector("#company-form");
-      if (!form) {
-        return;
-      }
-
-      if (!form.reportValidity()) {
-        return;
-      }
-
-      form.requestSubmit();
-      return;
-    }
     case "close-modal":
       closeModal();
       return;
