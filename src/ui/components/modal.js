@@ -89,6 +89,39 @@ function renderResearchCandidateList(candidates = [], action, buttonLabel = "Sel
                       )}</small>`
                     : ""
                 }
+                ${candidate.matchReason ? `<small>${escapeHtml(candidate.matchReason)}</small>` : ""}
+              </div>
+              <button
+                type="button"
+                class="primary-button primary-button--compact"
+                data-action="${action}"
+                data-id="${escapeHtml(candidate.id)}"
+              >
+                ${escapeHtml(buttonLabel)}
+              </button>
+            </article>
+          `
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function renderCompanyCandidateList(candidates = [], action, buttonLabel = "Select") {
+  if (!candidates.length) {
+    return `<p class="research-empty">No likely company matches yet. Try another name or add a more specific context.</p>`;
+  }
+
+  return `
+    <div class="finder-list">
+      ${candidates
+        .map(
+          (candidate) => `
+            <article class="finder-item finder-item--stacked">
+              <div class="finder-item__meta">
+                <strong>${escapeHtml(candidate.companyName || candidate.title || "Company result")}</strong>
+                <span>${escapeHtml(candidate.website || "")}</span>
+                ${candidate.snippet ? `<small>${escapeHtml(candidate.snippet)}</small>` : ""}
               </div>
               <button
                 type="button"
@@ -120,6 +153,7 @@ export function renderCompanyModal(modalState, company) {
     : "Set a first contact date to auto-schedule a follow-up one week later.";
   const researchResult = modalState.researchResult;
   const researchCandidates = researchResult?.candidates || [];
+  const companyCandidates = researchResult?.companyCandidates || [];
 
   return `
     <div class="modal-backdrop ${isOpen ? "is-open" : ""}" aria-hidden="${isOpen ? "false" : "true"}">
@@ -134,19 +168,27 @@ export function renderCompanyModal(modalState, company) {
         <div class="modal-layout">
           <form id="company-form" class="form-grid modal-main">
             <input type="hidden" name="id" value="${escapeHtml(company.id || "")}" />
-            <label class="field field--span-2">
-              <span>Company Name</span>
-              <input name="companyName" required value="${escapeHtml(company.companyName || "")}" />
-            </label>
-            <label class="field field--span-2">
-              <span>Company Website</span>
-              <input
-                name="website"
-                type="url"
-                placeholder="https://company-site.com"
-                value="${escapeHtml(company.website || "")}"
-              />
-            </label>
+            <section class="finder-summary finder-summary--selected field--span-2">
+              <div class="finder-section__head">
+                <strong>Selected Company Details</strong>
+                <span>Filled from the finder, but you can still tweak them here.</span>
+              </div>
+              <div class="form-grid form-grid--compact">
+                <label class="field">
+                  <span>Company Name</span>
+                  <input name="companyName" required value="${escapeHtml(company.companyName || "")}" />
+                </label>
+                <label class="field">
+                  <span>Company Website</span>
+                  <input
+                    name="website"
+                    type="url"
+                    placeholder="https://company-site.com"
+                    value="${escapeHtml(company.website || "")}"
+                  />
+                </label>
+              </div>
+            </section>
             <label class="field">
               <span>Contact Name</span>
               <input name="contactName" value="${escapeHtml(company.contactName || "")}" />
@@ -325,11 +367,63 @@ export function renderCompanyModal(modalState, company) {
                   Company
                 </button>
               </div>
+              <div class="finder-inputs">
+                <label class="field">
+                  <span>${modalState.researchMode === "website" ? "Company Name (optional)" : "Company Name"}</span>
+                  <input
+                    data-finder-field="finderCompanyName"
+                    placeholder="${modalState.researchMode === "website" ? "Atomic sponsor target" : "Morris Prints"}"
+                    value="${escapeHtml(modalState.finderCompanyName || "")}"
+                  />
+                </label>
+                ${
+                  modalState.researchMode === "website"
+                    ? `
+                      <label class="field">
+                        <span>Website URL</span>
+                        <input
+                          data-finder-field="finderWebsite"
+                          type="url"
+                          placeholder="https://company-site.com"
+                          value="${escapeHtml(modalState.finderWebsite || "")}"
+                        />
+                      </label>
+                    `
+                    : `
+                      <label class="field">
+                        <span>Context</span>
+                        <input
+                          data-finder-field="finderContext"
+                          placeholder="insurance, manufacturing, engineering"
+                          value="${escapeHtml(modalState.finderContext || "")}"
+                        />
+                      </label>
+                      <div class="finder-mode-toggle finder-mode-toggle--sub">
+                        <button
+                          type="button"
+                          class="editor-tab ${modalState.companySearchMode === "company" ? "is-active" : ""}"
+                          data-action="set-company-search-mode"
+                          data-id="company"
+                        >
+                          Company Names
+                        </button>
+                        <button
+                          type="button"
+                          class="editor-tab ${modalState.companySearchMode === "industry" ? "is-active" : ""}"
+                          data-action="set-company-search-mode"
+                          data-id="industry"
+                        >
+                          Industry
+                        </button>
+                      </div>
+                    `
+                }
+              </div>
               <p class="finder-help">
                 ${
                   modalState.researchMode === "website"
-                    ? "Use the website field to scan public pages and collect contact options."
-                    : "Use the company name field to try finding the official site first, then scan it."
+                    ? "Add a public website to scan named contacts, public emails, and page locations."
+                    : "Search by company name, then rank the likely matches by your context before scanning one."
                 }
               </p>
               <div class="finder-actions">
@@ -358,18 +452,37 @@ export function renderCompanyModal(modalState, company) {
                 researchResult
                   ? `
                     <div class="finder-summary">
-                      <strong>${escapeHtml(researchResult.website || "")}</strong>
+                      <strong>${escapeHtml(researchResult.website || researchResult.companyName || "Finder results")}</strong>
                       <span>${escapeHtml(researchResult.summary || "No summary generated.")}</span>
                     </div>
+                  `
+                  : `<p class="research-empty">Run the finder to build a selectable list of public emails and contact clues.</p>`
+              }
+              ${
+                modalState.researchMode === "company"
+                  ? `
                     <div class="finder-section">
                       <div class="finder-section__head">
-                        <strong>Found emails</strong>
+                        <strong>Potential Companies</strong>
+                        <span>${escapeHtml(String(companyCandidates.length))}</span>
+                      </div>
+                      ${renderCompanyCandidateList(companyCandidates, "select-company-candidate", "Select")}
+                    </div>
+                  `
+                  : ""
+              }
+              ${
+                researchResult?.website
+                  ? `
+                    <div class="finder-section">
+                      <div class="finder-section__head">
+                        <strong>Found Emails</strong>
                         <span>${escapeHtml(String(researchCandidates.length))}</span>
                       </div>
                       ${renderResearchCandidateList(researchCandidates, "select-research-candidate", "Select")}
                     </div>
                   `
-                  : `<p class="research-empty">Run the finder to build a selectable list of public emails and contact clues.</p>`
+                  : ""
               }
               <div class="finder-section">
                 <div class="finder-section__head">

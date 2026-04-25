@@ -513,6 +513,147 @@ function extractContactCandidates(text = "", pageUrl = "") {
   return candidates.slice(0, 8);
 }
 
+function titleCaseFromSlug(value = "") {
+  return String(value || "")
+    .split(/[\W_]+/)
+    .filter((part) => part.length >= 2)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function inferCompanyNameFromSearchResult(title = "", website = "", query = "") {
+  const titleSegments = normalizeWhitespace(title)
+    .split(/[|\-–—]/)
+    .map((segment) => normalizeWhitespace(segment))
+    .filter(Boolean);
+  const normalizedQuery = String(query || "").trim().toLowerCase();
+  const directMatch = titleSegments.find((segment) => segment.toLowerCase().includes(normalizedQuery));
+  if (directMatch) {
+    return directMatch;
+  }
+
+  if (titleSegments.length) {
+    return titleSegments[titleSegments.length - 1];
+  }
+
+  try {
+    return titleCaseFromSlug(new URL(website).hostname.replace(/^www\./i, "").split(".")[0]);
+  } catch {
+    return "";
+  }
+}
+
+function guessNameFromEmail(email = "") {
+  const localPart = String(email || "").split("@")[0] || "";
+  if (!localPart || /^(info|hello|team|sales|support|contact|office|admin|marketing|partnerships?)$/i.test(localPart)) {
+    return "";
+  }
+
+  const pieces = localPart
+    .split(/[._-]+/)
+    .filter((piece) => /^[a-z]{2,}$/i.test(piece) && !/^\d+$/.test(piece));
+
+  if (pieces.length < 2 || pieces.length > 3) {
+    return "";
+  }
+
+  return pieces
+    .map((piece) => piece.charAt(0).toUpperCase() + piece.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function getPageAreaLabel(pages = [], sourceUrl = "") {
+  if (!sourceUrl || !pages.length) {
+    return "Public page";
+  }
+
+  const page = pages.find((entry) => entry.url === sourceUrl);
+  if (page?.label) {
+    return page.label;
+  }
+
+  try {
+    const url = new URL(sourceUrl);
+    return url.pathname && url.pathname !== "/" ? url.pathname.replace(/\//g, " ").trim() : url.hostname;
+  } catch {
+    return "Public page";
+  }
+}
+
+function scoreEmailContactMatch(emailEntry, contact) {
+  if (!emailEntry?.email || !contact?.name) {
+    return 0;
+  }
+
+  const localPart = String(emailEntry.email).split("@")[0].toLowerCase();
+  const tokens = String(contact.name)
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+  const first = tokens[0] || "";
+  const last = tokens[tokens.length - 1] || "";
+
+  let score = 0;
+  if (emailEntry.source && contact.source && emailEntry.source === contact.source) {
+    score += 3;
+  }
+  if (first && localPart.includes(first)) {
+    score += 2;
+  }
+  if (last && localPart.includes(last)) {
+    score += 3;
+  }
+  if (first && last && (localPart.includes(`${first}.${last}`) || localPart.includes(`${first}${last}`))) {
+    score += 4;
+  }
+  if (first && last && (localPart.includes(`${first[0]}${last}`) || localPart.includes(`${first}${last[0]}`))) {
+    score += 3;
+  }
+
+  return score;
+}
+
+function buildEmailMatches({ contacts = [], emails = [], pages = [] }) {
+  const genericPattern = /^(info|hello|team|sales|support|contact|office|admin|marketing|partnerships?)@/i;
+
+  return emails
+    .map((entry, index) => {
+      const bestContact = contacts
+        .map((contact) => ({
+          contact,
+          score: scoreEmailContactMatch(entry, contact)
+        }))
+        .sort((left, right) => right.score - left.score)[0];
+      const guessedName = guessNameFromEmail(entry.email);
+      const isGeneric = genericPattern.test(entry.email || "");
+
+      return {
+        id: `${entry.email || "email"}-${index}`,
+        email: entry.email || "",
+        source: entry.source || "",
+        areaLabel: getPageAreaLabel(pages, entry.source),
+        contactName:
+          bestContact?.score >= 3
+            ? bestContact.contact.name
+            : guessedName,
+        contactRole: bestContact?.score >= 3 ? bestContact.contact.role || "" : "",
+        matchReason:
+          bestContact?.score >= 5
+            ? "Matched to a named contact on the same public page."
+            : bestContact?.score >= 3
+              ? "Email pattern appears to match a named contact."
+              : guessedName
+                ? "Name guessed from the public email format."
+                : isGeneric
+                  ? "Generic public company inbox."
+                  : "Public email found on the scanned page.",
+        specificityScore: bestContact?.score || (guessedName ? 2 : isGeneric ? 0 : 1)
+      };
+    })
+    .sort((left, right) => right.specificityScore - left.specificityScore)
+    .slice(0, 10);
+}
+
 function dedupeBy(items = [], keyFn) {
   const seen = new Set();
   return items.filter((item) => {
@@ -670,13 +811,13 @@ async function fetchResearchPage(url) {
   };
 }
 
-async function discoverCompanyWebsiteFromSearch(companyName = "") {
-  const query = String(companyName || "").trim();
-  if (!query) {
+async function fetchBingSearchHtml(query = "") {
+  const normalizedQuery = String(query || "").trim();
+  if (!normalizedQuery) {
     throw new Error("Add a company name first.");
   }
 
-  const response = await fetch(`https://www.bing.com/search?q=${encodeURIComponent(`${query} official website`)}`, {
+  const response = await fetch(`https://www.bing.com/search?q=${encodeURIComponent(normalizedQuery)}`, {
     method: "GET",
     redirect: "follow",
     signal: AbortSignal.timeout(9000),
@@ -686,10 +827,13 @@ async function discoverCompanyWebsiteFromSearch(companyName = "") {
   });
 
   if (!response.ok) {
-    throw new Error(`Could not search for ${query} (${response.status}).`);
+    throw new Error(`Could not search for ${normalizedQuery} (${response.status}).`);
   }
 
-  const html = await response.text();
+  return response.text();
+}
+
+function parseSearchResults(html = "") {
   const exclusions = [
     "bing.com",
     "linkedin.com",
@@ -702,28 +846,148 @@ async function discoverCompanyWebsiteFromSearch(companyName = "") {
     "glassdoor.com",
     "indeed.com"
   ];
+  const blocks = [...String(html || "").matchAll(/<li\b[^>]*class="[^"]*b_algo[^"]*"[\s\S]*?<\/li>/gi)];
 
-  const matches = [...html.matchAll(/<li\b[^>]*class="[^"]*b_algo[^"]*"[\s\S]*?<a[^>]+href="([^"]+)"/gi)];
-  for (const match of matches) {
-    const normalized = normalizeSearchResultUrl(match[1]);
-    if (!normalized) {
-      continue;
-    }
-
-    try {
-      const url = new URL(normalized);
-      const hostname = url.hostname.toLowerCase();
-      if (exclusions.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`))) {
-        continue;
+  return blocks
+    .map((match) => {
+      const block = match[0] || "";
+      const linkMatch =
+        block.match(/<h2[^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i) ||
+        block.match(/<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
+      const snippetMatch = block.match(/<p[^>]*>([\s\S]*?)<\/p>/i);
+      const normalized = normalizeSearchResultUrl(linkMatch?.[1] || "");
+      if (!normalized) {
+        return null;
       }
 
-      return url.toString();
-    } catch {
-      // Ignore malformed search results.
-    }
+      try {
+        const url = new URL(normalized);
+        const hostname = url.hostname.toLowerCase();
+        if (exclusions.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`))) {
+          return null;
+        }
+
+        return {
+          website: url.toString(),
+          title: normalizeWhitespace(stripHtml(linkMatch?.[2] || "")),
+          snippet: normalizeWhitespace(stripHtml(snippetMatch?.[1] || ""))
+        };
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+}
+
+function scoreCompanyCandidate(candidate, { companyName = "", context = "", companySearchMode = "company" } = {}) {
+  const nameQuery = String(companyName || "").trim().toLowerCase();
+  const contextTerms = String(context || "")
+    .toLowerCase()
+    .split(/[,/|]+|\s+/)
+    .map((term) => term.trim())
+    .filter((term) => term.length >= 3);
+  const haystack = `${candidate.companyName || ""} ${candidate.title || ""} ${candidate.snippet || ""} ${candidate.website || ""}`.toLowerCase();
+
+  let score = 0;
+  if (nameQuery && haystack.includes(nameQuery)) {
+    score += 6;
+  }
+  if (candidate.companyName && candidate.companyName.toLowerCase() === nameQuery) {
+    score += 4;
+  }
+  if (candidate.website && candidate.website.toLowerCase().includes(nameQuery.replace(/\s+/g, ""))) {
+    score += 3;
+  }
+  if (candidate.title && candidate.title.toLowerCase().startsWith(nameQuery)) {
+    score += 3;
   }
 
-  throw new Error("Could not find a clear official website from the company name.");
+  const contextScore = contextTerms.reduce(
+    (total, term) => total + (haystack.includes(term) ? 2 : 0),
+    0
+  );
+  score += companySearchMode === "industry" ? contextScore * 2 : contextScore;
+
+  if (/official|home|about|contact/i.test(candidate.snippet || "")) {
+    score += 1;
+  }
+
+  try {
+    const url = new URL(candidate.website || "");
+    const path = url.pathname || "/";
+    const depth = path.split("/").filter(Boolean).length;
+    if (path === "/" || depth === 0) {
+      score += 6;
+    } else if (depth >= 1) {
+      score -= 1;
+    }
+    if (depth >= 2) {
+      score -= 2;
+    }
+
+    if (/(personal|products?|services?|careers?|jobs|blog|news|docs|support|help|resources)/i.test(path)) {
+      score -= 4;
+    }
+  } catch {
+    // Ignore malformed URLs when scoring.
+  }
+
+  return score;
+}
+
+async function discoverCompanyCandidatesFromSearch({
+  companyName = "",
+  context = "",
+  companySearchMode = "company"
+} = {}) {
+  const query = String(companyName || "").trim();
+  if (!query) {
+    throw new Error("Add a company name first.");
+  }
+
+  const searchQuery =
+    companySearchMode === "industry" && context
+      ? `"${query}" ${context} company official website`
+      : `"${query}" official website ${context}`.trim();
+  const html = await fetchBingSearchHtml(searchQuery);
+  const results = parseSearchResults(html);
+
+  const candidates = dedupeBy(
+    results.map((result) => {
+      const inferredName = inferCompanyNameFromSearchResult(result.title, result.website, companyName);
+      const candidate = {
+        id: crypto.randomUUID(),
+        companyName: inferredName,
+        website: result.website,
+        title: result.title,
+        snippet: result.snippet,
+        areaLabel: "Search result"
+      };
+
+      return {
+        ...candidate,
+        score: scoreCompanyCandidate(candidate, { companyName, context, companySearchMode })
+      };
+    }),
+    (candidate) => candidate.website
+  )
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 8);
+
+  if (!candidates.length) {
+    throw new Error("Could not find likely company websites from that search.");
+  }
+
+  return candidates;
+}
+
+async function discoverCompanyWebsiteFromSearch(companyName = "", options = {}) {
+  const candidates = await discoverCompanyCandidatesFromSearch({
+    companyName,
+    context: options.context || "",
+    companySearchMode: options.companySearchMode || "company"
+  });
+  return candidates[0]?.website || "";
 }
 
 function chooseResearchLinks(homePage) {
@@ -856,13 +1120,53 @@ async function maybeRefineWithGemini(researchDraft) {
   return safeJsonParse(text);
 }
 
-async function researchCompanyWebsite({ companyName = "", website = "", searchMode = "website" }) {
+async function researchCompanyWebsite({
+  companyName = "",
+  website = "",
+  searchMode = "website",
+  context = "",
+  companySearchMode = "company"
+}) {
+  if (searchMode === "company" && !String(website || "").trim()) {
+    const companyCandidates = await discoverCompanyCandidatesFromSearch({
+      companyName,
+      context,
+      companySearchMode
+    });
+
+    return {
+      companyName,
+      website: "",
+      searchMode,
+      context,
+      companySearchMode,
+      companyCandidates,
+      contacts: [],
+      emails: [],
+      emailMatches: [],
+      phones: [],
+      pages: [],
+      signals: [],
+      sector: "",
+      recommendedAskType: "",
+      summary: companyCandidates.length
+        ? `Found ${companyCandidates.length} likely company matches. Pick one to scan its public pages for named contacts and emails.`
+        : "No likely company matches were found.",
+      personalization: "",
+      fieldSuggestions: []
+    };
+  }
+
   const normalizedWebsite =
     String(website || "").trim()
       ? normalizeWebsiteUrl(website)
-      : await discoverCompanyWebsiteFromSearch(companyName);
+      : await discoverCompanyWebsiteFromSearch(companyName, { context, companySearchMode });
   const pages = await tryFetchResearchPages(normalizedWebsite);
   const combinedText = pages.map((page) => `${page.title}\n${page.description}\n${textSnippet(page.text, 1600)}`).join("\n\n");
+  const resolvedCompanyName =
+    String(companyName || "").trim() ||
+    normalizeWhitespace(pages[0]?.title?.split(/[|\-–—]/)[0]) ||
+    titleCaseFromSlug(new URL(normalizedWebsite).hostname.replace(/^www\./i, "").split(".")[0]);
   const contacts = dedupeBy(
     pages.flatMap((page) => extractContactCandidates(page.text, page.url)),
     (contact) => `${contact.name}|${contact.role}`
@@ -871,6 +1175,7 @@ async function researchCompanyWebsite({ companyName = "", website = "", searchMo
     pages.flatMap((page) => extractEmails(`${page.html}\n${page.text}`, page.url)),
     (entry) => entry.email
   ).slice(0, 8);
+  const emailMatches = buildEmailMatches({ contacts, emails, pages });
   const phones = dedupeBy(
     pages.flatMap((page) => extractPhones(page.text, page.url)),
     (entry) => entry.phone
@@ -880,9 +1185,12 @@ async function researchCompanyWebsite({ companyName = "", website = "", searchMo
   const recommendedAskType = inferAskType(combinedText);
 
   const draft = {
-    companyName,
+    companyName: resolvedCompanyName,
     website: normalizedWebsite,
     searchMode,
+    context,
+    companySearchMode,
+    companyCandidates: [],
     pages: pages.map((page) => ({
       url: page.url,
       label: page.label || page.title || new URL(page.url).pathname,
@@ -891,12 +1199,13 @@ async function researchCompanyWebsite({ companyName = "", website = "", searchMo
     })),
     contacts,
     emails,
+    emailMatches,
     phones,
     sector,
     recommendedAskType,
     signals,
     summary: buildHeuristicSummary({
-      companyName,
+      companyName: resolvedCompanyName,
       sector,
       pages,
       signals,
@@ -904,7 +1213,7 @@ async function researchCompanyWebsite({ companyName = "", website = "", searchMo
       emails
     }),
     personalization: buildPersonalization({
-      companyName,
+      companyName: resolvedCompanyName,
       sector,
       signals,
       contacts
@@ -920,7 +1229,7 @@ async function researchCompanyWebsite({ companyName = "", website = "", searchMo
 
   try {
     const refined = await maybeRefineWithGemini({
-      companyName,
+      companyName: resolvedCompanyName,
       website: normalizedWebsite,
       pages: draft.pages,
       contacts,
@@ -1247,7 +1556,9 @@ async function handleRequest(request, response) {
       const result = await researchCompanyWebsite({
         companyName: body.companyName || "",
         website: body.website || "",
-        searchMode: body.searchMode || "website"
+        searchMode: body.searchMode || "website",
+        context: body.context || "",
+        companySearchMode: body.companySearchMode || "company"
       });
       sendJson(response, 200, result);
     } catch (error) {
