@@ -155,6 +155,27 @@ export function renderCompanyModal(modalState, company) {
   const researchCandidates = researchResult?.candidates || [];
   const companyCandidates = researchResult?.companyCandidates || [];
   const researchWarnings = researchResult?.warnings || [];
+  const isWebsiteMode = modalState.researchMode === "website";
+  const isIndustryMode = modalState.companySearchMode === "industry";
+  const primaryFinderLabel = isWebsiteMode
+    ? "Company Name (optional)"
+    : isIndustryMode
+      ? "Industry"
+      : "Company Name";
+  const primaryFinderPlaceholder = isWebsiteMode
+    ? "Atomic sponsor target"
+    : isIndustryMode
+      ? "insurance, engineering, print"
+      : "Morris Prints";
+  const contextLabel = isIndustryMode ? "Company Name / Extra Clue" : "Context";
+  const contextPlaceholder = isIndustryMode
+    ? "Ancile, London, travel insurance"
+    : "insurance, manufacturing, engineering";
+  const finderHelpText = isWebsiteMode
+    ? "Add a public website to scan named contacts, public emails, and page locations."
+    : isIndustryMode
+      ? "Search by industry first, then use the extra clue field to bias the shortlist toward the right company."
+      : "Search by company name, then rank the likely matches by your context before scanning one.";
 
   return `
     <div class="modal-backdrop ${isOpen ? "is-open" : ""}" aria-hidden="${isOpen ? "false" : "true"}">
@@ -370,15 +391,15 @@ export function renderCompanyModal(modalState, company) {
               </div>
               <div class="finder-inputs">
                 <label class="field">
-                  <span>${modalState.researchMode === "website" ? "Company Name (optional)" : "Company Name"}</span>
+                  <span>${primaryFinderLabel}</span>
                   <input
                     data-finder-field="finderCompanyName"
-                    placeholder="${modalState.researchMode === "website" ? "Atomic sponsor target" : "Morris Prints"}"
+                    placeholder="${primaryFinderPlaceholder}"
                     value="${escapeHtml(modalState.finderCompanyName || "")}"
                   />
                 </label>
                 ${
-                  modalState.researchMode === "website"
+                  isWebsiteMode
                     ? `
                       <label class="field">
                         <span>Website URL</span>
@@ -392,10 +413,10 @@ export function renderCompanyModal(modalState, company) {
                     `
                     : `
                       <label class="field">
-                        <span>Context</span>
+                        <span>${contextLabel}</span>
                         <input
                           data-finder-field="finderContext"
-                          placeholder="insurance, manufacturing, engineering"
+                          placeholder="${contextPlaceholder}"
                           value="${escapeHtml(modalState.finderContext || "")}"
                         />
                       </label>
@@ -421,11 +442,7 @@ export function renderCompanyModal(modalState, company) {
                 }
               </div>
               <p class="finder-help">
-                ${
-                  modalState.researchMode === "website"
-                    ? "Add a public website to scan named contacts, public emails, and page locations."
-                    : "Search by company name, then rank the likely matches by your context before scanning one."
-                }
+                ${finderHelpText}
               </p>
               <div class="finder-actions">
                 <button
