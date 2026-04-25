@@ -886,14 +886,17 @@ async function fetchBingSearchHtml(query = "") {
     throw new Error("Add a company name first.");
   }
 
-  const response = await fetch(`https://www.bing.com/search?q=${encodeURIComponent(normalizedQuery)}`, {
-    method: "GET",
-    redirect: "follow",
-    signal: AbortSignal.timeout(9000),
-    headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0 Safari/537.36"
+  const response = await fetch(
+    `https://www.bing.com/search?q=${encodeURIComponent(normalizedQuery)}&setlang=en-GB&cc=gb`,
+    {
+      method: "GET",
+      redirect: "follow",
+      signal: AbortSignal.timeout(9000),
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0 Safari/537.36"
+      }
     }
-  });
+  );
 
   if (!response.ok) {
     throw new Error(`Could not search for ${normalizedQuery} (${response.status}).`);
@@ -913,7 +916,12 @@ function parseSearchResults(html = "") {
     "youtube.com",
     "wikipedia.org",
     "glassdoor.com",
-    "indeed.com"
+    "indeed.com",
+    "zhihu.com",
+    "baidu.com",
+    "quora.com",
+    "pinterest.com",
+    "tiktok.com"
   ];
   const blocks = [...String(html || "").matchAll(/<li\b[^>]*class="[^"]*b_algo[^"]*"[\s\S]*?<\/li>/gi)];
 
@@ -946,6 +954,50 @@ function parseSearchResults(html = "") {
       }
     })
     .filter(Boolean);
+}
+
+function tokenizeSearchTerms(value = "") {
+  const stopWords = new Set(["the", "and", "for", "ltd", "limited", "company", "official"]);
+  return String(value || "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/i)
+    .map((term) => term.trim())
+    .filter((term) => term.length >= 3 && !stopWords.has(term));
+}
+
+function countMatchedTokens(tokens = [], haystack = "") {
+  if (!tokens.length) {
+    return 0;
+  }
+
+  return tokens.filter((token) => haystack.includes(token)).length;
+}
+
+function candidateLooksRelevant(candidate, { companyName = "", context = "", companySearchMode = "company" } = {}) {
+  const companyTokens = tokenizeSearchTerms(companyName);
+  const contextTokens = tokenizeSearchTerms(context);
+  const haystack = `${candidate.companyName || ""} ${candidate.title || ""} ${candidate.snippet || ""} ${
+    candidate.website || ""
+  }`.toLowerCase();
+
+  const companyMatches = countMatchedTokens(companyTokens, haystack);
+  if (companyTokens.length === 1 && companyMatches < 1) {
+    return false;
+  }
+
+  if (companyTokens.length > 1) {
+    const minimum = Math.max(1, Math.ceil(companyTokens.length * 0.6));
+    if (companyMatches < minimum) {
+      return false;
+    }
+  }
+
+  if (companySearchMode === "industry" && contextTokens.length) {
+    const contextMatches = countMatchedTokens(contextTokens, haystack);
+    return contextMatches > 0 || companyMatches >= Math.max(1, companyTokens.length);
+  }
+
+  return true;
 }
 
 function scoreCompanyCandidate(candidate, { companyName = "", context = "", companySearchMode = "company" } = {}) {
@@ -1014,15 +1066,33 @@ async function discoverCompanyCandidatesFromSearch({
     throw new Error("Add a company name first.");
   }
 
-  const searchQuery =
-    companySearchMode === "industry" && context
-      ? `"${query}" ${context} company official website`
-      : `"${query}" official website ${context}`.trim();
-  const html = await fetchBingSearchHtml(searchQuery);
-  const results = parseSearchResults(html);
+  const searchQueries = dedupeBy(
+    [
+      companySearchMode === "industry" && context
+        ? `"${query}" ${context} company official website uk`
+        : `"${query}" official website ${context} uk`,
+      `${query} ${context} official website`,
+      `${query} ${context} company`,
+      `"${query}" ${context}`
+    ]
+      .map((entry) => normalizeWhitespace(entry))
+      .filter(Boolean),
+    (entry) => entry.toLowerCase()
+  );
+
+  const collectedResults = [];
+  for (const searchQuery of searchQueries) {
+    try {
+      const html = await fetchBingSearchHtml(searchQuery);
+      collectedResults.push(...parseSearchResults(html));
+    } catch {
+      // Try the next query variant.
+    }
+  }
 
   const candidates = dedupeBy(
-    results.map((result) => {
+    collectedResults
+      .map((result) => {
       const inferredName = inferCompanyNameFromSearchResult(result.title, result.website, companyName);
       const candidate = {
         id: crypto.randomUUID(),
@@ -1037,14 +1107,16 @@ async function discoverCompanyCandidatesFromSearch({
         ...candidate,
         score: scoreCompanyCandidate(candidate, { companyName, context, companySearchMode })
       };
-    }),
+    })
+      .filter((candidate) => candidateLooksRelevant(candidate, { companyName, context, companySearchMode }))
+      .filter((candidate) => candidate.score > 0),
     (candidate) => candidate.website
   )
     .sort((left, right) => right.score - left.score)
     .slice(0, 8);
 
   if (!candidates.length) {
-    throw new Error("Could not find likely company websites from that search.");
+    throw new Error("Could not find likely company websites from that search. Try a more specific company name or context.");
   }
 
   return candidates;
