@@ -13,6 +13,7 @@ A modular sponsor-management web app for an F1 team. It is designed to be:
 - Company CRM with contact details, asks, responses, and contribution tracking
 - Follow-up calendar for interviews, proposals, and outreach deadlines
 - HTML email template studio with token replacement
+- Company website research helper with public-page scraping and optional free-tier AI suggestions
 - Shared password gate for quick teammate access
 - Local demo fallback so the app still runs before Supabase is connected
 
@@ -69,6 +70,7 @@ Set these environment variables in Render:
 
 - `PUBLIC_SUPABASE_URL`
 - `PUBLIC_SUPABASE_ANON_KEY`
+- `GEMINI_API_KEY` (optional)
 - `PUBLIC_SITE_PASSWORD`
 - `PUBLIC_TEAM_NAME`
 - `PUBLIC_SEASON_LABEL`
@@ -90,5 +92,6 @@ Render will build a static `dist/` folder and publish it.
 
 - teammate invite flow from inside the app
 - richer activity history per company
+- richer company-research scoring and contact extraction
 - attachment uploads for proposal decks and logos
 - replacing the Mk 1 shared password gate with real role-based access control

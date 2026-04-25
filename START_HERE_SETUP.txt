@@ -192,6 +192,12 @@ In Render, add these environment variables exactly:
 2. PUBLIC_SUPABASE_ANON_KEY
    Value: your Supabase anon public key
 
+3. GEMINI_API_KEY
+   Value: optional
+
+This is only needed if you want the free-tier AI layer for company research suggestions.
+Without it, the website research tool still works using public-page scraping and heuristics.
+
 3. PUBLIC_SITE_PASSWORD
    Value: your shared team password
 

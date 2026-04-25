@@ -1,4 +1,5 @@
 alter table if exists public.companies
+add column if not exists company_website text,
 add column if not exists contact_name text,
 add column if not exists contact_role text,
 add column if not exists contact_email text,
@@ -15,6 +16,8 @@ add column if not exists interview_date date,
 add column if not exists response_status text default 'waiting',
 add column if not exists request_from_us text,
 add column if not exists giving_in_return text,
+add column if not exists research_summary text,
+add column if not exists personalization_notes text,
 add column if not exists notes text,
 add column if not exists created_at timestamptz default timezone('utc', now()),
 add column if not exists updated_at timestamptz default timezone('utc', now());

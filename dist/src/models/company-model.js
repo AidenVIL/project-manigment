@@ -30,6 +30,7 @@ export const responseStatusOptions = [
 const baseCompany = {
   id: "",
   companyName: "",
+  website: "",
   contactName: "",
   contactRole: "",
   contactEmail: "",
@@ -46,6 +47,8 @@ const baseCompany = {
   responseStatus: "waiting",
   requestFromUs: "",
   givingInReturn: "",
+  researchSummary: "",
+  personalizationNotes: "",
   notes: "",
   createdAt: "",
   lastUpdated: ""
@@ -92,6 +95,7 @@ export function createCompany(input = {}) {
     ...baseCompany,
     id: input.id || crypto.randomUUID(),
     companyName: input.companyName ?? input.company_name ?? "",
+    website: input.website ?? input.company_website ?? "",
     contactName: input.contactName ?? input.contact_name ?? "",
     contactRole: input.contactRole ?? input.contact_role ?? "",
     contactEmail: input.contactEmail ?? input.contact_email ?? "",
@@ -110,6 +114,8 @@ export function createCompany(input = {}) {
     responseStatus: input.responseStatus ?? input.response_status ?? "waiting",
     requestFromUs: input.requestFromUs ?? input.request_from_us ?? "",
     givingInReturn: input.givingInReturn ?? input.giving_in_return ?? "",
+    researchSummary: input.researchSummary ?? input.research_summary ?? "",
+    personalizationNotes: input.personalizationNotes ?? input.personalization_notes ?? "",
     notes: input.notes ?? "",
     createdAt: input.createdAt ?? input.created_at ?? now,
     lastUpdated: input.lastUpdated ?? input.updated_at ?? now
@@ -122,6 +128,7 @@ export function serializeCompanyForApi(company) {
   return {
     id: normalized.id,
     company_name: normalized.companyName,
+    company_website: normalized.website,
     contact_name: normalized.contactName,
     contact_role: normalized.contactRole,
     contact_email: normalized.contactEmail,
@@ -138,6 +145,8 @@ export function serializeCompanyForApi(company) {
     response_status: normalized.responseStatus,
     request_from_us: normalized.requestFromUs,
     giving_in_return: normalized.givingInReturn,
+    research_summary: normalized.researchSummary,
+    personalization_notes: normalized.personalizationNotes,
     notes: normalized.notes
   };
 }

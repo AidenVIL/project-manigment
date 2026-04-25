@@ -31,7 +31,9 @@ const runtimeSecrets = {
   clientId: process.env.GOOGLE_CLIENT_ID || "",
   clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
   redirectUri: process.env.GOOGLE_REDIRECT_URI || "",
-  allowedEmail: (process.env.GMAIL_ACCOUNT_EMAIL || "").trim().toLowerCase()
+  allowedEmail: (process.env.GMAIL_ACCOUNT_EMAIL || "").trim().toLowerCase(),
+  geminiApiKey: (process.env.GEMINI_API_KEY || "").trim(),
+  geminiModel: (process.env.GEMINI_MODEL || "gemini-2.5-flash").trim()
 };
 
 const persistentDir = resolve(
@@ -306,6 +308,646 @@ function decodeBase64Url(value = "") {
   const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
   const padding = normalized.length % 4 === 0 ? "" : "=".repeat(4 - (normalized.length % 4));
   return Buffer.from(`${normalized}${padding}`, "base64").toString("utf8");
+}
+
+function normalizeWebsiteUrl(input = "") {
+  const trimmed = String(input || "").trim();
+  if (!trimmed) {
+    throw new Error("Add a company website first.");
+  }
+
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  return new URL(withProtocol).toString();
+}
+
+function normalizeSearchResultUrl(rawUrl = "") {
+  if (!rawUrl) {
+    return "";
+  }
+
+  try {
+    const direct = new URL(decodeHtmlEntities(rawUrl));
+    if (direct.hostname.includes("duckduckgo.com")) {
+      const redirected = direct.searchParams.get("uddg");
+      if (redirected) {
+        return new URL(decodeURIComponent(redirected)).toString();
+      }
+    }
+    if (direct.hostname.includes("bing.com")) {
+      const encodedTarget = direct.searchParams.get("u");
+      if (encodedTarget) {
+        const normalizedTarget = encodedTarget.startsWith("a1") ? encodedTarget.slice(2) : encodedTarget;
+        try {
+          const decodedTarget = Buffer.from(
+            normalizedTarget.replace(/-/g, "+").replace(/_/g, "/"),
+            "base64"
+          ).toString("utf8");
+          if (/^https?:\/\//i.test(decodedTarget)) {
+            return new URL(decodedTarget).toString();
+          }
+        } catch {
+          // Fall back to direct parsing below.
+        }
+      }
+    }
+    return direct.toString();
+  } catch {
+    try {
+      const prefixed = new URL(decodeHtmlEntities(rawUrl), "https://duckduckgo.com");
+      const redirected = prefixed.searchParams.get("uddg");
+      if (redirected) {
+        return new URL(decodeURIComponent(redirected)).toString();
+      }
+      return prefixed.toString();
+    } catch {
+      return "";
+    }
+  }
+}
+
+function stripHtml(html = "") {
+  return String(html || "")
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, " ")
+    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, " ")
+    .replace(/<noscript\b[^<]*(?:(?!<\/noscript>)<[^<]*)*<\/noscript>/gi, " ")
+    .replace(/<svg\b[^<]*(?:(?!<\/svg>)<[^<]*)*<\/svg>/gi, " ")
+    .replace(/<[^>]+>/g, " ");
+}
+
+function decodeHtmlEntities(text = "") {
+  return String(text || "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, "\"")
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">");
+}
+
+function normalizeWhitespace(text = "") {
+  return decodeHtmlEntities(String(text || "").replace(/\s+/g, " ")).trim();
+}
+
+function extractTitle(html = "") {
+  return normalizeWhitespace(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || "");
+}
+
+function extractMetaDescription(html = "") {
+  return normalizeWhitespace(
+    html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([\s\S]*?)["'][^>]*>/i)?.[1] ||
+      html.match(/<meta[^>]+content=["']([\s\S]*?)["'][^>]+name=["']description["'][^>]*>/i)?.[1] ||
+      ""
+  );
+}
+
+function textSnippet(text = "", maxLength = 2200) {
+  return normalizeWhitespace(text).slice(0, maxLength);
+}
+
+function extractEmails(text = "", pageUrl = "") {
+  const matches = [...String(text || "").matchAll(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi)];
+  const seen = new Set();
+  return matches
+    .map((match) => match[0].toLowerCase())
+    .filter((email) => {
+      if (seen.has(email)) {
+        return false;
+      }
+      seen.add(email);
+      return !email.endsWith(".png") && !email.endsWith(".jpg") && !email.includes("example.com");
+    })
+    .map((email) => ({ email, source: pageUrl }));
+}
+
+function extractPhones(text = "", pageUrl = "") {
+  const matches = [...String(text || "").matchAll(/(?:\+\d{1,3}\s?)?(?:\(?\d{2,5}\)?[\s.-]?)?\d{3,4}[\s.-]?\d{3,4}(?:[\s.-]?\d{2,4})?/g)];
+  const seen = new Set();
+  return matches
+    .map((match) => normalizeWhitespace(match[0]))
+    .filter((phone) => phone.replace(/\D/g, "").length >= 9)
+    .filter((phone) => {
+      if (seen.has(phone)) {
+        return false;
+      }
+      seen.add(phone);
+      return true;
+    })
+    .map((phone) => ({ phone, source: pageUrl }));
+}
+
+function extractLinks(html = "", baseUrl = "") {
+  const links = [];
+  const seen = new Set();
+  const pattern = /<a\b[^>]*href=["']([^"'#]+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+
+  for (const match of html.matchAll(pattern)) {
+    const href = match[1];
+    const label = normalizeWhitespace(stripHtml(match[2]));
+
+    try {
+      const url = new URL(href, baseUrl);
+      if (!/^https?:$/i.test(url.protocol)) {
+        continue;
+      }
+
+      const key = url.toString();
+      if (seen.has(key)) {
+        continue;
+      }
+
+      seen.add(key);
+      links.push({ url: key, label });
+    } catch {
+      // Ignore malformed links.
+    }
+  }
+
+  return links;
+}
+
+function extractContactCandidates(text = "", pageUrl = "") {
+  const candidates = [];
+  const seen = new Set();
+  const roleKeywords =
+    /(head|director|manager|lead|executive|coordinator|officer|founder|owner|commercial|marketing|partnerships|business development|president|chief)/i;
+  const patterns = [
+    /\b([A-Z][a-z]+ [A-Z][a-z]+)\s*[,|-]\s*((?:Head|Director|Manager|Lead|Executive|Coordinator|Officer|Founder|Owner|Commercial|Marketing|Partnerships|Business Development)[^.\n,]{0,60})/g,
+    /\b((?:Head|Director|Manager|Lead|Executive|Coordinator|Officer|Founder|Owner|Commercial|Marketing|Partnerships|Business Development)[^:\n]{0,50})[:\-]\s*([A-Z][a-z]+ [A-Z][a-z]+)/g
+  ];
+
+  const segments = String(text || "")
+    .split(/[\n\r]+|(?<=[.?!])\s+|[|•]+/)
+    .map((segment) => normalizeWhitespace(segment))
+    .filter((segment) => segment.length >= 8 && segment.length <= 180);
+
+  for (const segment of segments) {
+    for (const pattern of patterns) {
+      for (const match of segment.matchAll(pattern)) {
+        const name = normalizeWhitespace(pattern === patterns[0] ? match[1] : match[2]);
+        const role = normalizeWhitespace(pattern === patterns[0] ? match[2] : match[1]);
+        const nameLooksValid = /^[A-Z][a-z]+(?: [A-Z][a-z]+){1,2}$/.test(name);
+        const roleLooksValid = roleKeywords.test(role);
+        if (!nameLooksValid || !roleLooksValid || roleKeywords.test(name)) {
+          continue;
+        }
+
+        if (/[A-Z][a-z]+ [A-Z][a-z]+ [A-Z][a-z]+/.test(role)) {
+          continue;
+        }
+
+        const key = `${name}|${role}`;
+        if (!name || seen.has(key)) {
+          continue;
+        }
+
+        seen.add(key);
+        candidates.push({
+          name,
+          role,
+          source: pageUrl
+        });
+      }
+    }
+  }
+
+  return candidates.slice(0, 8);
+}
+
+function dedupeBy(items = [], keyFn) {
+  const seen = new Set();
+  return items.filter((item) => {
+    const key = keyFn(item);
+    if (!key || seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function inferSector(combinedText = "") {
+  const normalized = combinedText.toLowerCase();
+  const sectorSignals = [
+    { sector: "Software / Data", keywords: ["software", "saas", "analytics", "data", "cloud", "platform"] },
+    { sector: "Precision Engineering", keywords: ["precision", "cnc", "machining", "tooling", "manufacturing"] },
+    { sector: "Composite / Materials", keywords: ["composite", "carbon", "materials", "polymer", "laminate"] },
+    { sector: "Media / Content", keywords: ["media", "video", "content", "creative", "brand"] },
+    { sector: "Travel / Logistics", keywords: ["logistics", "freight", "shipping", "transport", "travel"] },
+    { sector: "Education / STEM", keywords: ["education", "stem", "school", "learning", "youth"] }
+  ];
+
+  const winner = sectorSignals
+    .map((entry) => ({
+      sector: entry.sector,
+      score: entry.keywords.filter((keyword) => normalized.includes(keyword)).length
+    }))
+    .sort((left, right) => right.score - left.score)[0];
+
+  return winner?.score ? winner.sector : "";
+}
+
+function inferAskType(combinedText = "") {
+  const normalized = combinedText.toLowerCase();
+  const askSignals = [
+    { askType: "software", keywords: ["software", "cloud", "analytics", "simulation", "digital"] },
+    { askType: "machining", keywords: ["cnc", "machining", "milling", "turning", "precision"] },
+    { askType: "manufacturing", keywords: ["manufacturing", "production", "factory", "fabrication"] },
+    { askType: "materials", keywords: ["materials", "composite", "carbon", "polymer", "supplier"] },
+    { askType: "media", keywords: ["media", "video", "marketing", "creative", "content"] },
+    { askType: "travel", keywords: ["travel", "transport", "logistics", "freight", "shipping"] }
+  ];
+
+  const winner = askSignals
+    .map((entry) => ({
+      askType: entry.askType,
+      score: entry.keywords.filter((keyword) => normalized.includes(keyword)).length
+    }))
+    .sort((left, right) => right.score - left.score)[0];
+
+  return winner?.score ? winner.askType : "cash";
+}
+
+function collectSignals(combinedText = "") {
+  const normalized = combinedText.toLowerCase();
+  const signals = [];
+  const rules = [
+    ["STEM or education activity", ["stem", "education", "students", "school", "learning"]],
+    ["Community or youth focus", ["community", "youth", "outreach", "charity", "volunteer"]],
+    ["Innovation messaging", ["innovation", "future", "engineering", "technology", "r&d"]],
+    ["Sustainability messaging", ["sustainability", "net zero", "carbon", "environment", "green"]],
+    ["Brand or content partnership angle", ["brand", "audience", "content", "storytelling", "campaign"]]
+  ];
+
+  for (const [label, keywords] of rules) {
+    if (keywords.some((keyword) => normalized.includes(keyword))) {
+      signals.push(label);
+    }
+  }
+
+  return signals;
+}
+
+function buildHeuristicSummary({ companyName, sector, pages, signals, contacts, emails }) {
+  const intro = sector
+    ? `${companyName || "This company"} looks closest to the ${sector} space based on its public website copy.`
+    : `${companyName || "This company"} has public website copy that suggests a general commercial partnership target.`;
+  const pageNote = pages.length
+    ? ` Pages scanned included ${pages
+        .slice(0, 4)
+        .map((page) => page.label || new URL(page.url).pathname || page.url)
+        .join(", ")}.`
+    : "";
+  const signalNote = signals.length ? ` Useful sponsor-fit signals: ${signals.join(", ")}.` : "";
+  const contactNote = contacts.length
+    ? ` A likely contact is ${contacts[0].name}${contacts[0].role ? ` (${contacts[0].role})` : ""}.`
+    : emails.length
+      ? ` No clear named contact was found, but at least one public email address is available.`
+      : " No public contact email was found in the pages scanned.";
+
+  return `${intro}${pageNote}${signalNote}${contactNote}`.trim();
+}
+
+function buildPersonalization({ companyName, sector, signals, contacts }) {
+  const intro = contacts[0]?.name
+    ? `Open by addressing ${contacts[0].name}${contacts[0].role ? ` and mention their ${contacts[0].role} role` : ""}.`
+    : `Open by referencing ${companyName || "the company"} directly rather than using a generic sponsorship pitch.`;
+  const sectorAngle = sector
+    ? ` Frame the partnership around the ${sector} angle and how Atomic can showcase that in a STEM Racing context.`
+    : "";
+  const signalAngle = signals.length
+    ? ` Mention ${signals[0].toLowerCase()} if it fits your ask, because it appears in the public website copy.`
+    : "";
+
+  return `${intro}${sectorAngle}${signalAngle}`.trim();
+}
+
+function buildFieldSuggestions({ sector, recommendedAskType, signals, contacts, emails }) {
+  const suggestions = [];
+  if (sector) {
+    suggestions.push(`Sector: ${sector}`);
+  }
+  if (recommendedAskType) {
+    suggestions.push(`Suggested ask type: ${recommendedAskType}`);
+  }
+  if (contacts[0]?.role) {
+    suggestions.push(`Mention the ${contacts[0].role} role in the email`);
+  }
+  if (emails.length) {
+    suggestions.push("Use the public contact email for the first draft");
+  }
+  if (signals[0]) {
+    suggestions.push(`Reference ${signals[0].toLowerCase()} in the intro`);
+  }
+  return suggestions;
+}
+
+async function fetchResearchPage(url) {
+  const response = await fetch(url, {
+    method: "GET",
+    redirect: "follow",
+    signal: AbortSignal.timeout(9000),
+    headers: {
+      "User-Agent": "AtomicSponsorResearchBot/1.0 (+https://atomic.local)"
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`Could not load ${url} (${response.status}).`);
+  }
+
+  const html = await response.text();
+  const finalUrl = response.url || url;
+  const title = extractTitle(html);
+  const description = extractMetaDescription(html);
+  const text = normalizeWhitespace(stripHtml(html));
+
+  return {
+    url: finalUrl,
+    title,
+    description,
+    text,
+    html
+  };
+}
+
+async function discoverCompanyWebsiteFromSearch(companyName = "") {
+  const query = String(companyName || "").trim();
+  if (!query) {
+    throw new Error("Add a company name first.");
+  }
+
+  const response = await fetch(`https://www.bing.com/search?q=${encodeURIComponent(`${query} official website`)}`, {
+    method: "GET",
+    redirect: "follow",
+    signal: AbortSignal.timeout(9000),
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0 Safari/537.36"
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`Could not search for ${query} (${response.status}).`);
+  }
+
+  const html = await response.text();
+  const exclusions = [
+    "bing.com",
+    "linkedin.com",
+    "facebook.com",
+    "instagram.com",
+    "twitter.com",
+    "x.com",
+    "youtube.com",
+    "wikipedia.org",
+    "glassdoor.com",
+    "indeed.com"
+  ];
+
+  const matches = [...html.matchAll(/<li\b[^>]*class="[^"]*b_algo[^"]*"[\s\S]*?<a[^>]+href="([^"]+)"/gi)];
+  for (const match of matches) {
+    const normalized = normalizeSearchResultUrl(match[1]);
+    if (!normalized) {
+      continue;
+    }
+
+    try {
+      const url = new URL(normalized);
+      const hostname = url.hostname.toLowerCase();
+      if (exclusions.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`))) {
+        continue;
+      }
+
+      return url.toString();
+    } catch {
+      // Ignore malformed search results.
+    }
+  }
+
+  throw new Error("Could not find a clear official website from the company name.");
+}
+
+function chooseResearchLinks(homePage) {
+  const baseUrl = homePage.url;
+  const baseOrigin = new URL(baseUrl).origin;
+  const pageHints = [
+    "about",
+    "contact",
+    "team",
+    "people",
+    "leadership",
+    "partners",
+    "partnership",
+    "community",
+    "sustainability",
+    "careers",
+    "news"
+  ];
+
+  const sameOriginLinks = extractLinks(homePage.html, baseUrl)
+    .filter((link) => new URL(link.url).origin === baseOrigin)
+    .map((link) => {
+      const haystack = `${link.label} ${new URL(link.url).pathname}`.toLowerCase();
+      const score = pageHints.reduce((total, hint) => total + (haystack.includes(hint) ? 1 : 0), 0);
+      return { ...link, score };
+    })
+    .filter((link) => link.score > 0)
+    .sort((left, right) => right.score - left.score);
+
+  const guessedLinks = pageHints.map((hint) => {
+    try {
+      return { url: new URL(`/${hint}`, baseUrl).toString(), label: hint, score: 0.5 };
+    } catch {
+      return null;
+    }
+  }).filter(Boolean);
+
+  return dedupeBy([...sameOriginLinks, ...guessedLinks], (link) => link.url).slice(0, 6);
+}
+
+async function tryFetchResearchPages(seedUrl) {
+  const homePage = await fetchResearchPage(seedUrl);
+  const extraPages = [];
+
+  for (const link of chooseResearchLinks(homePage)) {
+    try {
+      const page = await fetchResearchPage(link.url);
+      extraPages.push({
+        ...page,
+        label: link.label || page.title || new URL(page.url).pathname
+      });
+    } catch {
+      // Skip pages that fail to load.
+    }
+  }
+
+  return [
+    {
+      ...homePage,
+      label: "home"
+    },
+    ...extraPages
+  ];
+}
+
+function safeJsonParse(text = "") {
+  try {
+    return JSON.parse(text);
+  } catch {
+    const match = String(text || "").match(/\{[\s\S]*\}/);
+    if (!match) {
+      return null;
+    }
+    try {
+      return JSON.parse(match[0]);
+    } catch {
+      return null;
+    }
+  }
+}
+
+async function maybeRefineWithGemini(researchDraft) {
+  if (!runtimeSecrets.geminiApiKey) {
+    return null;
+  }
+
+  const prompt = {
+    task: "You are helping a student STEM Racing team personalise sponsor outreach. Return JSON only.",
+    required_shape: {
+      summary: "string",
+      sector: "string",
+      recommendedAskType: "cash|materials|machining|manufacturing|software|media|travel|hybrid",
+      personalization: "string",
+      fieldSuggestions: ["string"]
+    },
+    input: researchDraft
+  };
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+      runtimeSecrets.geminiModel
+    )}:generateContent?key=${encodeURIComponent(runtimeSecrets.geminiApiKey)}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8"
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: JSON.stringify(prompt) }]
+          }
+        ],
+        generationConfig: {
+          temperature: 0.2,
+          responseMimeType: "application/json"
+        }
+      }),
+      signal: AbortSignal.timeout(15000)
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Gemini research request failed (${response.status}).`);
+  }
+
+  const payload = await response.json();
+  const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("") || "";
+  return safeJsonParse(text);
+}
+
+async function researchCompanyWebsite({ companyName = "", website = "", searchMode = "website" }) {
+  const normalizedWebsite =
+    String(website || "").trim()
+      ? normalizeWebsiteUrl(website)
+      : await discoverCompanyWebsiteFromSearch(companyName);
+  const pages = await tryFetchResearchPages(normalizedWebsite);
+  const combinedText = pages.map((page) => `${page.title}\n${page.description}\n${textSnippet(page.text, 1600)}`).join("\n\n");
+  const contacts = dedupeBy(
+    pages.flatMap((page) => extractContactCandidates(page.text, page.url)),
+    (contact) => `${contact.name}|${contact.role}`
+  ).slice(0, 6);
+  const emails = dedupeBy(
+    pages.flatMap((page) => extractEmails(`${page.html}\n${page.text}`, page.url)),
+    (entry) => entry.email
+  ).slice(0, 8);
+  const phones = dedupeBy(
+    pages.flatMap((page) => extractPhones(page.text, page.url)),
+    (entry) => entry.phone
+  ).slice(0, 5);
+  const signals = collectSignals(combinedText);
+  const sector = inferSector(combinedText);
+  const recommendedAskType = inferAskType(combinedText);
+
+  const draft = {
+    companyName,
+    website: normalizedWebsite,
+    searchMode,
+    pages: pages.map((page) => ({
+      url: page.url,
+      label: page.label || page.title || new URL(page.url).pathname,
+      title: page.title,
+      description: page.description
+    })),
+    contacts,
+    emails,
+    phones,
+    sector,
+    recommendedAskType,
+    signals,
+    summary: buildHeuristicSummary({
+      companyName,
+      sector,
+      pages,
+      signals,
+      contacts,
+      emails
+    }),
+    personalization: buildPersonalization({
+      companyName,
+      sector,
+      signals,
+      contacts
+    }),
+    fieldSuggestions: buildFieldSuggestions({
+      sector,
+      recommendedAskType,
+      signals,
+      contacts,
+      emails
+    })
+  };
+
+  try {
+    const refined = await maybeRefineWithGemini({
+      companyName,
+      website: normalizedWebsite,
+      pages: draft.pages,
+      contacts,
+      emails,
+      phones,
+      signals,
+      combinedSnippet: textSnippet(combinedText, 10000)
+    });
+
+    if (refined) {
+      return {
+        ...draft,
+        summary: refined.summary || draft.summary,
+        sector: refined.sector || draft.sector,
+        recommendedAskType: refined.recommendedAskType || draft.recommendedAskType,
+        personalization: refined.personalization || draft.personalization,
+        fieldSuggestions:
+          Array.isArray(refined.fieldSuggestions) && refined.fieldSuggestions.length
+            ? refined.fieldSuggestions
+            : draft.fieldSuggestions
+      };
+    }
+  } catch {
+    // Fall back to heuristic research if the optional Gemini layer fails.
+  }
+
+  return draft;
 }
 
 function encodeBase64Url(value = "") {
@@ -595,6 +1237,21 @@ async function handleRequest(request, response) {
       sendJson(response, 200, { ok: true });
     } catch (error) {
       sendJson(response, 500, { error: error.message });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/company-research") {
+    try {
+      const body = await readJsonBody(request);
+      const result = await researchCompanyWebsite({
+        companyName: body.companyName || "",
+        website: body.website || "",
+        searchMode: body.searchMode || "website"
+      });
+      sendJson(response, 200, result);
+    } catch (error) {
+      sendJson(response, 400, { error: error.message });
     }
     return;
   }

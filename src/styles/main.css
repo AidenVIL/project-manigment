@@ -1419,8 +1419,28 @@ textarea {
   width: min(1180px, 100%);
 }
 
+.modal-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) 380px;
+  gap: 1rem;
+  align-items: start;
+}
+
+.modal-main {
+  margin-top: 0;
+}
+
+.modal-side {
+  position: sticky;
+  top: 0;
+}
+
 .modal-header h3 {
   font-size: 2rem;
+}
+
+.modal-header--inline {
+  margin-bottom: 1rem;
 }
 
 .form-grid {
@@ -1478,6 +1498,90 @@ textarea {
 
 .field--span-2 {
   grid-column: span 2;
+}
+
+.panel--embedded {
+  padding: 1rem;
+  border-radius: 20px;
+  background: #f7fbf5;
+}
+
+.finder-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.finder-mode-toggle,
+.finder-actions {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.finder-mode-toggle {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.finder-help,
+.finder-summary span,
+.finder-item__meta span,
+.finder-item__meta small {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.finder-summary {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.9rem 1rem;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(22, 49, 26, 0.08);
+}
+
+.finder-section {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.finder-section__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.finder-list {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.finder-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: start;
+  padding: 0.85rem 0.95rem;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(22, 49, 26, 0.08);
+}
+
+.finder-item__meta {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.research-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.research-empty {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
 }
 
 .modal-actions {
@@ -1587,6 +1691,11 @@ textarea {
   color: #0f2f13;
 }
 
+.primary-button--compact {
+  min-height: 40px;
+  padding: 0 0.9rem;
+}
+
 .primary-button:hover,
 .ghost-button:hover,
 .ghost-link:hover {
@@ -1612,6 +1721,12 @@ textarea {
 
 .ghost-button--danger {
   color: #ffb2ab;
+}
+
+.ghost-button--compact {
+  min-height: 40px;
+  padding: 0 0.9rem;
+  border-radius: 12px;
 }
 
 .inline-message {
@@ -1735,8 +1850,13 @@ textarea {
   .form-grid,
   .token-grid,
   .editor-topbar,
-  .builder-shell {
+  .builder-shell,
+  .modal-layout {
     grid-template-columns: 1fr;
+  }
+
+  .modal-side {
+    position: static;
   }
 
   .month-calendar__labels,

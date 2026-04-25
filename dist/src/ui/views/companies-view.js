@@ -44,6 +44,13 @@ export function renderCompaniesView({ filters, companies, totalCompanies }) {
                 <div>
                   <h3>${escapeHtml(company.companyName)}</h3>
                   <p>${escapeHtml(company.contactName || "Primary contact not set")}</p>
+                  ${
+                    company.website
+                      ? `<p><a href="${escapeHtml(company.website)}" target="_blank" rel="noreferrer">${escapeHtml(
+                          company.website
+                        )}</a></p>`
+                      : ""
+                  }
                 </div>
                 <div class="company-actions">
                   <span class="badge badge--${getToneClass(company.status)}">${escapeHtml(

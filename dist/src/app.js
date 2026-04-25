@@ -1,5 +1,5 @@
 import { APP_CONFIG, isSupabaseConfigured } from "./config/runtime-config.js";
-import { createCompany } from "./models/company-model.js";
+import { askTypeOptions, createCompany, getOptionLabel } from "./models/company-model.js";
 import { authService } from "./services/auth-service.js";
 import {
   buildCalendarEvents,
@@ -10,6 +10,7 @@ import { companyService } from "./services/company-service.js";
 import { buildDashboardSnapshot } from "./services/dashboard-service.js";
 import { draftService } from "./services/draft-service.js";
 import { gmailService } from "./services/gmail-service.js";
+import { companyResearchService } from "./services/company-research-service.js";
 import { templateService } from "./services/template-service.js";
 import { analyzeEmailWriting } from "./services/writing-coach-service.js";
 import { renderCompanyModal } from "./ui/components/modal.js";
@@ -51,7 +52,12 @@ const state = {
     companyId: "",
     draft: createCompany(),
     saving: false,
-    error: ""
+    error: "",
+    researchLoading: false,
+    researchError: "",
+    researchResult: null,
+    researchMode: "website",
+    completedResearchEntries: []
   },
   mailbox: {
     loading: false,
@@ -219,6 +225,124 @@ function upsertCompanyInState(company) {
 
     return left.companyName.localeCompare(right.companyName);
   });
+}
+
+function resetModalResearchState() {
+  state.modal.researchLoading = false;
+  state.modal.researchError = "";
+  state.modal.researchResult = null;
+  state.modal.researchMode = "website";
+  state.modal.completedResearchEntries = [];
+}
+
+function applyResearchSuggestionsToDraft(result) {
+  if (!result) {
+    return;
+  }
+
+  const topContact = result.contacts?.[0] || null;
+  const topEmail = result.emails?.[0] || null;
+  const nextNotes = [state.modal.draft.notes || ""];
+
+  if (result.signals?.length) {
+    nextNotes.push(`Research signals: ${result.signals.join(" | ")}`);
+  }
+
+  if (result.pages?.length) {
+    nextNotes.push(`Sources scanned: ${result.pages.map((page) => page.label || page.url).join(" | ")}`);
+  }
+
+  state.modal.draft = createCompany({
+    ...state.modal.draft,
+    companyName: state.modal.draft.companyName || result.companyName || "",
+    website: state.modal.draft.website || result.website || "",
+    contactName: state.modal.draft.contactName || topContact?.name || "",
+    contactRole: state.modal.draft.contactRole || topContact?.role || "",
+    contactEmail: state.modal.draft.contactEmail || topEmail?.email || "",
+    sector: state.modal.draft.sector || result.sector || "",
+    askType: result.recommendedAskType || state.modal.draft.askType,
+    researchSummary: result.summary || state.modal.draft.researchSummary || "",
+    personalizationNotes: result.personalization || state.modal.draft.personalizationNotes || "",
+    notes: nextNotes.filter(Boolean).join("\n\n")
+  });
+}
+
+function buildResearchResultViewModel(result) {
+  if (!result) {
+    return null;
+  }
+
+  return {
+    ...result,
+    recommendedAskTypeLabel: result.recommendedAskType
+      ? getOptionLabel(askTypeOptions, result.recommendedAskType)
+      : "",
+    pagesScanned: result.pages?.length || 0,
+    candidates: buildResearchCandidates(result)
+  };
+}
+
+function getResearchSourceLabel(result, sourceUrl = "") {
+  if (!sourceUrl || !result?.pages?.length) {
+    return "Public page";
+  }
+
+  const page = result.pages.find((entry) => entry.url === sourceUrl);
+  if (page?.label) {
+    return page.label;
+  }
+
+  try {
+    const url = new URL(sourceUrl);
+    return url.pathname && url.pathname !== "/" ? url.pathname.replace(/\//g, " ").trim() : url.hostname;
+  } catch {
+    return "Public page";
+  }
+}
+
+function buildResearchCandidates(result) {
+  if (!result) {
+    return [];
+  }
+
+  return (result.emails || []).map((entry, index) => {
+    const matchingContact =
+      (result.contacts || []).find((contact) => contact.source === entry.source) || null;
+    return {
+      id: `${entry.email || "email"}-${index}`,
+      email: entry.email || "",
+      source: entry.source || "",
+      areaLabel: getResearchSourceLabel(result, entry.source),
+      contactName: matchingContact?.name || "",
+      contactRole: matchingContact?.role || ""
+    };
+  });
+}
+
+function applyResearchCandidate(candidate) {
+  if (!candidate) {
+    return;
+  }
+
+  state.modal.draft = createCompany({
+    ...state.modal.draft,
+    contactName: candidate.contactName || state.modal.draft.contactName,
+    contactRole: candidate.contactRole || state.modal.draft.contactRole,
+    contactEmail: candidate.email || state.modal.draft.contactEmail,
+    website: state.modal.draft.website || state.modal.researchResult?.website || "",
+    companyName: state.modal.draft.companyName || state.modal.researchResult?.companyName || "",
+    sector: state.modal.draft.sector || state.modal.researchResult?.sector || "",
+    askType: state.modal.researchResult?.recommendedAskType || state.modal.draft.askType,
+    researchSummary: state.modal.researchResult?.summary || state.modal.draft.researchSummary || "",
+    personalizationNotes:
+      state.modal.researchResult?.personalization || state.modal.draft.personalizationNotes || ""
+  });
+
+  const nextCompleted = [
+    candidate,
+    ...state.modal.completedResearchEntries.filter((entry) => entry.id !== candidate.id)
+  ];
+  state.modal.completedResearchEntries = nextCompleted;
 }
 
 function showToast(message) {
@@ -793,6 +917,7 @@ function closeModal() {
   state.modal.draft = createCompany();
   state.modal.saving = false;
   state.modal.error = "";
+  resetModalResearchState();
   renderApp();
 }
 
@@ -813,6 +938,8 @@ function openCompanyModal(companyId = "") {
   };
   state.modal.saving = false;
   state.modal.error = "";
+  resetModalResearchState();
+  state.modal.researchMode = existingCompany.website ? "website" : "company";
   renderApp();
 }
 
@@ -1365,6 +1492,55 @@ async function handleCompanySubmit(form) {
   }
 }
 
+async function runCompanyResearch(form) {
+  const formData = new FormData(form);
+  const companyName = String(formData.get("companyName") || state.modal.draft.companyName || "").trim();
+  const website = String(formData.get("website") || state.modal.draft.website || "").trim();
+
+  if (state.modal.researchMode === "website" && !website) {
+    showToast("Add the company website first.");
+    return;
+  }
+
+  if (state.modal.researchMode === "company" && !companyName) {
+    showToast("Add the company name first.");
+    return;
+  }
+
+  state.modal.draft = {
+    ...state.modal.draft,
+    companyName,
+    website
+  };
+  state.modal.researchLoading = true;
+  state.modal.researchError = "";
+  renderApp();
+
+  try {
+    const result = await companyResearchService.researchCompany({
+      companyName,
+      website,
+      searchMode: state.modal.researchMode
+    });
+    state.modal.researchLoading = false;
+    state.modal.researchResult = buildResearchResultViewModel(result);
+    if (!state.modal.draft.website && state.modal.researchResult?.website) {
+      state.modal.draft = createCompany({
+        ...state.modal.draft,
+        website: state.modal.researchResult.website
+      });
+    }
+    renderApp();
+    showToast("Website research complete.");
+  } catch (error) {
+    console.error(error);
+    state.modal.researchLoading = false;
+    state.modal.researchError = error.message || "Could not research that website.";
+    renderApp();
+    showToast(error.message || "Could not research that website.");
+  }
+}
+
 async function saveTemplateFromEditor() {
   if (!state.editor || state.editor.mode !== "template") {
     return;
@@ -1483,6 +1659,80 @@ root.addEventListener("click", async (event) => {
     case "send-follow-up-email":
       await sendFollowUpEmail();
       return;
+    case "research-company": {
+      const form = root.querySelector("#company-form");
+      if (!form || state.modal.researchLoading) {
+        return;
+      }
+
+      await runCompanyResearch(form);
+      return;
+    }
+    case "set-research-mode":
+      state.modal.researchMode = id === "company" ? "company" : "website";
+      state.modal.researchError = "";
+      renderApp();
+      return;
+    case "apply-research-suggestions":
+      if (!state.modal.researchResult) {
+        return;
+      }
+
+      applyResearchSuggestionsToDraft(state.modal.researchResult);
+      renderApp();
+      showToast("Research suggestions applied.");
+      return;
+    case "select-research-candidate": {
+      const candidate = buildResearchCandidates(state.modal.researchResult).find((entry) => entry.id === id);
+      if (!candidate) {
+        return;
+      }
+
+      applyResearchCandidate(candidate);
+      renderApp();
+      showToast("Research result applied.");
+      return;
+    }
+    case "reopen-completed-research": {
+      const candidate = state.modal.completedResearchEntries.find((entry) => entry.id === id);
+      if (!candidate) {
+        return;
+      }
+
+      applyResearchCandidate(candidate);
+      renderApp();
+      showToast("Completed result reopened.");
+      return;
+    }
+    case "apply-research-contact": {
+      const contact = state.modal.researchResult?.contacts?.[Number(id)] || null;
+      if (!contact) {
+        return;
+      }
+
+      state.modal.draft = createCompany({
+        ...state.modal.draft,
+        contactName: contact.name || state.modal.draft.contactName,
+        contactRole: contact.role || state.modal.draft.contactRole
+      });
+      renderApp();
+      showToast("Contact details applied.");
+      return;
+    }
+    case "apply-research-email": {
+      const email = state.modal.researchResult?.emails?.[Number(id)] || null;
+      if (!email) {
+        return;
+      }
+
+      state.modal.draft = createCompany({
+        ...state.modal.draft,
+        contactEmail: email.email || state.modal.draft.contactEmail
+      });
+      renderApp();
+      showToast("Email applied.");
+      return;
+    }
     case "save-company": {
       const form = root.querySelector("#company-form");
       if (!form || state.modal.saving) {
