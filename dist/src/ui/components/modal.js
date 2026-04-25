@@ -154,6 +154,7 @@ export function renderCompanyModal(modalState, company) {
   const researchResult = modalState.researchResult;
   const researchCandidates = researchResult?.candidates || [];
   const companyCandidates = researchResult?.companyCandidates || [];
+  const researchWarnings = researchResult?.warnings || [];
 
   return `
     <div class="modal-backdrop ${isOpen ? "is-open" : ""}" aria-hidden="${isOpen ? "false" : "true"}">
@@ -446,6 +447,15 @@ export function renderCompanyModal(modalState, company) {
               ${
                 modalState.researchError
                   ? `<div class="inline-message inline-message--danger">${escapeHtml(modalState.researchError)}</div>`
+                  : ""
+              }
+              ${
+                researchWarnings.length
+                  ? `
+                    <div class="inline-message inline-message--warning">
+                      ${researchWarnings.map((warning) => escapeHtml(warning)).join("<br />")}
+                    </div>
+                  `
                   : ""
               }
               ${

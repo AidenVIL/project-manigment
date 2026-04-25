@@ -405,6 +405,28 @@ function textSnippet(text = "", maxLength = 2200) {
 }
 
 function extractEmails(text = "", pageUrl = "") {
+  const placeholderDomains = [
+    "example.com",
+    "domain.com",
+    "email.com",
+    "yourdomain.com",
+    "company.com",
+    "website.com",
+    "test.com"
+  ];
+  const placeholderLocalParts = [
+    "user",
+    "name",
+    "email",
+    "example",
+    "test",
+    "yourname",
+    "username",
+    "firstname",
+    "lastname",
+    "first.last",
+    "first_last"
+  ];
   const matches = [...String(text || "").matchAll(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi)];
   const seen = new Set();
   return matches
@@ -414,7 +436,29 @@ function extractEmails(text = "", pageUrl = "") {
         return false;
       }
       seen.add(email);
-      return !email.endsWith(".png") && !email.endsWith(".jpg") && !email.includes("example.com");
+
+      const [localPart = "", domain = ""] = email.split("@");
+      if (!localPart || !domain) {
+        return false;
+      }
+
+      if (email.endsWith(".png") || email.endsWith(".jpg") || email.endsWith(".jpeg") || email.endsWith(".webp")) {
+        return false;
+      }
+
+      if (placeholderDomains.includes(domain) || placeholderLocalParts.includes(localPart)) {
+        return false;
+      }
+
+      if (/^(user|name|email|firstname|lastname|test)[._-]?(name|email|domain|lastname)?$/i.test(localPart)) {
+        return false;
+      }
+
+      if (/^(your|my|sample|demo|placeholder)/i.test(localPart)) {
+        return false;
+      }
+
+      return true;
     })
     .map((email) => ({ email, source: pageUrl }));
 }
@@ -783,32 +827,57 @@ function buildFieldSuggestions({ sector, recommendedAskType, signals, contacts, 
 }
 
 async function fetchResearchPage(url) {
-  const response = await fetch(url, {
-    method: "GET",
-    redirect: "follow",
-    signal: AbortSignal.timeout(9000),
-    headers: {
-      "User-Agent": "AtomicSponsorResearchBot/1.0 (+https://atomic.local)"
+  const headerProfiles = [
+    {
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0 Safari/537.36",
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "en-GB,en;q=0.9",
+      "Cache-Control": "no-cache"
+    },
+    {
+      "User-Agent": "AtomicSponsorResearchBot/1.0 (+https://atomic.local)",
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
     }
-  });
+  ];
 
-  if (!response.ok) {
-    throw new Error(`Could not load ${url} (${response.status}).`);
+  let lastResponse = null;
+  for (const headers of headerProfiles) {
+    const response = await fetch(url, {
+      method: "GET",
+      redirect: "follow",
+      signal: AbortSignal.timeout(9000),
+      headers
+    });
+
+    lastResponse = response;
+    if (response.ok) {
+      const html = await response.text();
+      const finalUrl = response.url || url;
+      const title = extractTitle(html);
+      const description = extractMetaDescription(html);
+      const text = normalizeWhitespace(stripHtml(html));
+
+      return {
+        url: finalUrl,
+        title,
+        description,
+        text,
+        html
+      };
+    }
+
+    if (response.status !== 403 && response.status !== 429) {
+      break;
+    }
   }
 
-  const html = await response.text();
-  const finalUrl = response.url || url;
-  const title = extractTitle(html);
-  const description = extractMetaDescription(html);
-  const text = normalizeWhitespace(stripHtml(html));
-
-  return {
-    url: finalUrl,
-    title,
-    description,
-    text,
-    html
-  };
+  if (!lastResponse?.ok) {
+    const error = new Error(`Could not load ${url} (${lastResponse?.status || "blocked"}).`);
+    error.status = lastResponse?.status || 0;
+    error.url = url;
+    throw error;
+  }
 }
 
 async function fetchBingSearchHtml(query = "") {
@@ -1029,7 +1098,17 @@ function chooseResearchLinks(homePage) {
 }
 
 async function tryFetchResearchPages(seedUrl) {
-  const homePage = await fetchResearchPage(seedUrl);
+  const warnings = [];
+  const homePage = await fetchResearchPage(seedUrl).catch((error) => {
+    if (error?.status === 401 || error?.status === 403 || error?.status === 429) {
+      warnings.push(
+        error.status === 429
+          ? `The website rate-limited the finder while scanning ${seedUrl}.`
+          : `The website blocked public page scanning for ${seedUrl} (${error.status}).`
+      );
+    }
+    throw Object.assign(error, { warnings });
+  });
   const extraPages = [];
 
   for (const link of chooseResearchLinks(homePage)) {
@@ -1044,13 +1123,16 @@ async function tryFetchResearchPages(seedUrl) {
     }
   }
 
-  return [
-    {
-      ...homePage,
-      label: "home"
-    },
-    ...extraPages
-  ];
+  return {
+    pages: [
+      {
+        ...homePage,
+        label: "home"
+      },
+      ...extraPages
+    ],
+    warnings
+  };
 }
 
 function safeJsonParse(text = "") {
@@ -1067,6 +1149,40 @@ function safeJsonParse(text = "") {
       return null;
     }
   }
+}
+
+function buildBlockedResearchResult({
+  companyName = "",
+  website = "",
+  searchMode = "website",
+  context = "",
+  companySearchMode = "company",
+  warning = ""
+} = {}) {
+  const resolvedCompanyName =
+    String(companyName || "").trim() ||
+    titleCaseFromSlug(new URL(website).hostname.replace(/^www\./i, "").split(".")[0]);
+
+  return {
+    companyName: resolvedCompanyName,
+    website,
+    searchMode,
+    context,
+    companySearchMode,
+    companyCandidates: [],
+    contacts: [],
+    emails: [],
+    emailMatches: [],
+    phones: [],
+    pages: [],
+    signals: [],
+    sector: "",
+    recommendedAskType: "",
+    warnings: [warning || `The website blocked public page scanning for ${website}.`],
+    summary: `We found the website, but it blocked automated public scanning. You can still save the company manually or try another public page from the same company.`,
+    personalization: "Try using a generic outreach opener and fill in any named contacts manually if the site does not expose them publicly.",
+    fieldSuggestions: ["Save the company manually and add any known contact details yourself."]
+  };
 }
 
 async function maybeRefineWithGemini(researchDraft) {
@@ -1161,7 +1277,27 @@ async function researchCompanyWebsite({
     String(website || "").trim()
       ? normalizeWebsiteUrl(website)
       : await discoverCompanyWebsiteFromSearch(companyName, { context, companySearchMode });
-  const pages = await tryFetchResearchPages(normalizedWebsite);
+  let pageScan;
+  try {
+    pageScan = await tryFetchResearchPages(normalizedWebsite);
+  } catch (error) {
+    if (error?.status === 401 || error?.status === 403 || error?.status === 429) {
+      return buildBlockedResearchResult({
+        companyName,
+        website: normalizedWebsite,
+        searchMode,
+        context,
+        companySearchMode,
+        warning:
+          error?.warnings?.[0] ||
+          `The website blocked public page scanning for ${normalizedWebsite} (${error.status}).`
+      });
+    }
+    throw error;
+  }
+
+  const pages = pageScan.pages || [];
+  const warnings = pageScan.warnings || [];
   const combinedText = pages.map((page) => `${page.title}\n${page.description}\n${textSnippet(page.text, 1600)}`).join("\n\n");
   const resolvedCompanyName =
     String(companyName || "").trim() ||
@@ -1203,6 +1339,7 @@ async function researchCompanyWebsite({
     phones,
     sector,
     recommendedAskType,
+    warnings,
     signals,
     summary: buildHeuristicSummary({
       companyName: resolvedCompanyName,

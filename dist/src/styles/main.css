@@ -1769,6 +1769,12 @@ textarea {
   color: #ffb1a8;
 }
 
+.inline-message--warning {
+  background: rgba(103, 186, 87, 0.14);
+  color: #2e5b28;
+  border: 1px solid rgba(50, 206, 50, 0.18);
+}
+
 .empty-state,
 .empty-inline {
   color: var(--muted);
