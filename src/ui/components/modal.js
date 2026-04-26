@@ -107,7 +107,7 @@ function renderResearchCandidateList(candidates = [], action, buttonLabel = "Sel
   `;
 }
 
-function renderCompanyCandidateList(candidates = [], action, buttonLabel = "Select") {
+function renderCompanyCandidateList(candidates = [], selectedId = "", action = "preview-company-candidate", buttonLabel = "View") {
   if (!candidates.length) {
     return `<p class="research-empty">No likely company matches yet. Try another name or add a more specific context.</p>`;
   }
@@ -117,7 +117,7 @@ function renderCompanyCandidateList(candidates = [], action, buttonLabel = "Sele
       ${candidates
         .map(
           (candidate) => `
-            <article class="finder-item finder-item--stacked">
+            <article class="finder-item finder-item--stacked ${candidate.id === selectedId ? "finder-item--active" : ""}">
               <div class="finder-item__meta">
                 <strong>${escapeHtml(candidate.companyName || candidate.title || "Company result")}</strong>
                 <span>${escapeHtml(candidate.website || "")}</span>
@@ -131,17 +131,10 @@ function renderCompanyCandidateList(candidates = [], action, buttonLabel = "Sele
                     ? `<small>${escapeHtml(candidate.summaryLine || candidate.snippet || "")}</small>`
                     : ""
                 }
-                ${
-                  candidate.sponsorSignalsLine
-                    ? `<small>${escapeHtml(candidate.sponsorSignalsLine)}</small>`
-                    : candidate.sponsorEmail
-                      ? `<small>${escapeHtml(`Public email: ${candidate.sponsorEmail}`)}</small>`
-                      : ""
-                }
               </div>
               <button
                 type="button"
-                class="primary-button primary-button--compact"
+                class="${candidate.id === selectedId ? "ghost-button" : "primary-button"} primary-button--compact"
                 data-action="${action}"
                 data-id="${escapeHtml(candidate.id)}"
               >
@@ -151,6 +144,51 @@ function renderCompanyCandidateList(candidates = [], action, buttonLabel = "Sele
           `
         )
         .join("")}
+    </div>
+  `;
+}
+
+function renderSelectedCompanyCandidateDetail(candidate) {
+  if (!candidate) {
+    return `
+      <div class="finder-summary finder-summary--selected">
+        <div class="finder-section__head">
+          <strong>Selected Company</strong>
+          <span>Pick a result to preview it here.</span>
+        </div>
+        <p class="research-empty">Run the finder, then use the list on the right to preview the best matches.</p>
+      </div>
+    `;
+  }
+
+  const note =
+    candidate.sponsorSignalsLine ||
+    (candidate.sponsorEmail ? `Public email: ${candidate.sponsorEmail}` : "") ||
+    "No strong public sponsor signal was found on the scanned pages.";
+
+  return `
+    <div class="finder-summary finder-summary--selected">
+      <div class="finder-section__head">
+        <strong>${escapeHtml(candidate.companyName || "Selected Company")}</strong>
+        ${candidate.sponsorFitLabel ? `<small class="finder-item__badge">${escapeHtml(candidate.sponsorFitLabel)}</small>` : ""}
+      </div>
+      ${candidate.website ? `<span>${escapeHtml(candidate.website)}</span>` : ""}
+      ${
+        candidate.summaryLine || candidate.snippet
+          ? `<p class="research-empty">${escapeHtml(candidate.summaryLine || candidate.snippet || "")}</p>`
+          : ""
+      }
+      <p class="research-empty">${escapeHtml(note)}</p>
+      <div class="finder-actions finder-actions--inline">
+        <button
+          type="button"
+          class="primary-button primary-button--full"
+          data-action="select-company-candidate"
+          data-id="${escapeHtml(candidate.id)}"
+        >
+          Select for Main Form
+        </button>
+      </div>
     </div>
   `;
 }
@@ -171,6 +209,10 @@ export function renderCompanyModal(modalState, company) {
   const researchCandidates = researchResult?.candidates || [];
   const companyCandidates = researchResult?.companyCandidates || [];
   const researchWarnings = researchResult?.warnings || [];
+  const selectedCompanyCandidate =
+    companyCandidates.find((candidate) => candidate.id === modalState.selectedCompanyCandidateId) ||
+    companyCandidates[0] ||
+    null;
   const isWebsiteMode = modalState.researchMode === "website";
   const isIndustryMode = modalState.companySearchMode === "industry";
   const primaryFinderLabel = isWebsiteMode
@@ -494,7 +536,9 @@ export function renderCompanyModal(modalState, company) {
                       : ""
                   }
                   ${
-                    researchResult
+                    modalState.researchMode === "company"
+                      ? renderSelectedCompanyCandidateDetail(selectedCompanyCandidate)
+                      : researchResult
                       ? `
                         <div class="finder-summary">
                           <strong>${escapeHtml(researchResult.website || researchResult.companyName || "Finder results")}</strong>
@@ -513,7 +557,12 @@ export function renderCompanyModal(modalState, company) {
                             <strong>Potential Companies</strong>
                             <span>${escapeHtml(String(companyCandidates.length))}</span>
                           </div>
-                          ${renderCompanyCandidateList(companyCandidates, "select-company-candidate", "Select")}
+                          ${renderCompanyCandidateList(
+                            companyCandidates,
+                            selectedCompanyCandidate?.id || "",
+                            "preview-company-candidate",
+                            "View"
+                          )}
                         </div>
                       </div>
                     `

@@ -1529,6 +1529,7 @@ textarea {
 .finder-workspace__results {
   display: grid;
   gap: 1rem;
+  min-width: 0;
 }
 
 .finder-mode-toggle,
@@ -1557,6 +1558,7 @@ textarea {
   margin: 0;
   color: var(--muted);
   line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 
 .finder-summary {
@@ -1570,6 +1572,7 @@ textarea {
 
 .finder-summary--selected {
   gap: 0.9rem;
+  align-content: start;
 }
 
 .finder-summary--selected .finder-section__head {
@@ -1579,6 +1582,10 @@ textarea {
 .finder-summary--selected .finder-section__head span {
   color: var(--muted);
   font-size: 0.85rem;
+}
+
+.finder-actions--inline {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .finder-section {
@@ -1607,15 +1614,38 @@ textarea {
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.78);
   border: 1px solid rgba(22, 49, 26, 0.08);
+  min-width: 0;
 }
 
 .finder-item--stacked {
   align-items: center;
 }
 
+.finder-item--active {
+  border-color: rgba(50, 206, 50, 0.35);
+  box-shadow: 0 0 0 1px rgba(50, 206, 50, 0.16);
+}
+
 .finder-item__meta {
   display: grid;
   gap: 0.2rem;
+  min-width: 0;
+}
+
+.finder-item__meta strong,
+.finder-item__meta span,
+.finder-item__meta small,
+.finder-section__head strong,
+.finder-summary p,
+.finder-summary span {
+  overflow-wrap: anywhere;
+}
+
+.finder-item__meta small {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
 }
 
 .finder-item__badge {

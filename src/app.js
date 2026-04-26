@@ -61,6 +61,7 @@ const state = {
     finderCompanyName: "",
     finderWebsite: "",
     finderContext: "",
+    selectedCompanyCandidateId: "",
     completedResearchEntries: []
   },
   mailbox: {
@@ -240,6 +241,7 @@ function resetModalResearchState() {
   state.modal.finderCompanyName = "";
   state.modal.finderWebsite = "";
   state.modal.finderContext = "";
+  state.modal.selectedCompanyCandidateId = "";
   state.modal.completedResearchEntries = [];
 }
 
@@ -355,6 +357,43 @@ function applyResearchCandidate(candidate) {
     ...state.modal.completedResearchEntries.filter((entry) => entry.id !== candidate.id)
   ];
   state.modal.completedResearchEntries = nextCompleted;
+}
+
+function getSelectedResearchCompanyCandidate() {
+  const candidates = state.modal.researchResult?.companyCandidates || [];
+  if (!candidates.length) {
+    return null;
+  }
+
+  return (
+    candidates.find((entry) => entry.id === state.modal.selectedCompanyCandidateId) ||
+    candidates[0] ||
+    null
+  );
+}
+
+function previewResearchCompanyCandidate(candidate) {
+  if (!candidate) {
+    return;
+  }
+
+  state.modal.selectedCompanyCandidateId = candidate.id || "";
+}
+
+function applyResearchCompanyCandidate(candidate) {
+  if (!candidate) {
+    return;
+  }
+
+  previewResearchCompanyCandidate(candidate);
+  state.modal.draft = createCompany({
+    ...state.modal.draft,
+    companyName: candidate.companyName || state.modal.draft.companyName,
+    website: candidate.website || state.modal.draft.website,
+    sector: candidate.industry || candidate.sector || state.modal.draft.sector,
+    researchSummary: candidate.summaryLine || state.modal.draft.researchSummary,
+    personalizationNotes: candidate.sponsorSignalsLine || state.modal.draft.personalizationNotes
+  });
 }
 
 function showToast(message) {
@@ -1535,6 +1574,7 @@ async function runCompanyResearch() {
     });
     state.modal.researchLoading = false;
     state.modal.researchResult = buildResearchResultViewModel(result);
+    state.modal.selectedCompanyCandidateId = result.companyCandidates?.[0]?.id || "";
     if (!state.modal.draft.website && state.modal.researchResult?.website) {
       state.modal.draft = createCompany({
         ...state.modal.draft,
@@ -1555,45 +1595,6 @@ async function runCompanyResearch() {
     state.modal.researchError = error.message || "Could not run the company finder.";
     renderApp();
     showToast(error.message || "Could not run the company finder.");
-  }
-}
-
-async function selectResearchCompanyCandidate(candidate) {
-  if (!candidate || state.modal.researchLoading) {
-    return;
-  }
-
-  state.modal.finderCompanyName = candidate.companyName || "";
-  state.modal.finderWebsite = candidate.website || "";
-  state.modal.draft = createCompany({
-    ...state.modal.draft,
-    companyName: candidate.companyName || state.modal.draft.companyName,
-    website: candidate.website || state.modal.draft.website
-  });
-  state.modal.researchLoading = true;
-  state.modal.researchError = "";
-  renderApp();
-
-  try {
-    const result = await companyResearchService.researchCompany({
-      companyName: candidate.companyName || "",
-      website: candidate.website || "",
-      context: state.modal.finderContext || "",
-      searchMode: "website",
-      companySearchMode: state.modal.companySearchMode
-    });
-
-    state.modal.researchLoading = false;
-    state.modal.researchResult = buildResearchResultViewModel(result);
-    applyResearchSuggestionsToDraft(state.modal.researchResult);
-    renderApp();
-    showToast("Company selected and contact options loaded.");
-  } catch (error) {
-    console.error(error);
-    state.modal.researchLoading = false;
-    state.modal.researchError = error.message || "Could not load that company's public contacts.";
-    renderApp();
-    showToast(error.message || "Could not load that company's public contacts.");
   }
 }
 
@@ -1727,21 +1728,35 @@ root.addEventListener("click", async (event) => {
       state.modal.researchMode = id === "company" ? "company" : "website";
       state.modal.researchError = "";
       state.modal.researchResult = null;
+      state.modal.selectedCompanyCandidateId = "";
       renderApp();
       return;
     case "set-company-search-mode":
       state.modal.companySearchMode = id === "industry" ? "industry" : "company";
       state.modal.researchError = "";
       state.modal.researchResult = null;
+      state.modal.selectedCompanyCandidateId = "";
       renderApp();
       return;
+    case "preview-company-candidate": {
+      const candidate = state.modal.researchResult?.companyCandidates?.find((entry) => entry.id === id);
+      if (!candidate) {
+        return;
+      }
+
+      previewResearchCompanyCandidate(candidate);
+      renderApp();
+      return;
+    }
     case "select-company-candidate": {
       const candidate = state.modal.researchResult?.companyCandidates?.find((entry) => entry.id === id);
       if (!candidate) {
         return;
       }
 
-      await selectResearchCompanyCandidate(candidate);
+      applyResearchCompanyCandidate(candidate);
+      renderApp();
+      showToast("Company details applied to the main form.");
       return;
     }
     case "apply-research-suggestions":
