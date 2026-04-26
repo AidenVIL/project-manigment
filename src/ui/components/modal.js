@@ -128,7 +128,7 @@ function renderCompanyCandidateList(candidates = [], selectedId = "", action = "
                 }
                 ${
                   candidate.summaryLine || candidate.snippet
-                    ? `<small>${escapeHtml(candidate.summaryLine || candidate.snippet || "")}</small>`
+                    ? `<small class="finder-summary-line">${escapeHtml(candidate.summaryLine || candidate.snippet || "")}</small>`
                     : ""
                 }
               </div>
@@ -148,7 +148,7 @@ function renderCompanyCandidateList(candidates = [], selectedId = "", action = "
   `;
 }
 
-function renderSelectedCompanyCandidateDetail(candidate) {
+function renderSelectedCompanyCandidateDetail(candidate, isApplied = false) {
   if (!candidate) {
     return `
       <div class="finder-summary finder-summary--selected">
@@ -173,12 +173,14 @@ function renderSelectedCompanyCandidateDetail(candidate) {
         ${candidate.sponsorFitLabel ? `<small class="finder-item__badge">${escapeHtml(candidate.sponsorFitLabel)}</small>` : ""}
       </div>
       ${candidate.website ? `<span>${escapeHtml(candidate.website)}</span>` : ""}
-      ${
-        candidate.summaryLine || candidate.snippet
-          ? `<p class="research-empty">${escapeHtml(candidate.summaryLine || candidate.snippet || "")}</p>`
-          : ""
-      }
       <p class="research-empty">${escapeHtml(note)}</p>
+      ${
+        isApplied && (candidate.fullSummary || candidate.summaryLine || candidate.snippet)
+          ? `<p class="finder-full-summary">${escapeHtml(
+              candidate.fullSummary || candidate.summaryLine || candidate.snippet || ""
+            )}</p>`
+          : `<p class="research-empty">Use the shortlist on the right, then click Select to load the deeper company summary here.</p>`
+      }
       <div class="finder-actions finder-actions--inline">
         <button
           type="button"
@@ -213,6 +215,8 @@ export function renderCompanyModal(modalState, company) {
     companyCandidates.find((candidate) => candidate.id === modalState.selectedCompanyCandidateId) ||
     companyCandidates[0] ||
     null;
+  const selectedCompanyCandidateIsApplied =
+    Boolean(selectedCompanyCandidate?.id) && selectedCompanyCandidate?.id === modalState.appliedCompanyCandidateId;
   const isWebsiteMode = modalState.researchMode === "website";
   const isIndustryMode = modalState.companySearchMode === "industry";
   const primaryFinderLabel = isWebsiteMode
@@ -537,7 +541,7 @@ export function renderCompanyModal(modalState, company) {
                   }
                   ${
                     modalState.researchMode === "company"
-                      ? renderSelectedCompanyCandidateDetail(selectedCompanyCandidate)
+                      ? renderSelectedCompanyCandidateDetail(selectedCompanyCandidate, selectedCompanyCandidateIsApplied)
                       : researchResult
                       ? `
                         <div class="finder-summary">

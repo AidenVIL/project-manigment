@@ -192,25 +192,6 @@ textarea {
   color: var(--warning);
 }
 
-.nav-panel {
-  display: grid;
-  gap: 0.45rem;
-}
-
-.nav-panel a {
-  padding: 0.75rem 0.9rem;
-  border-radius: 14px;
-  color: var(--muted);
-  background: rgba(50, 206, 50, 0.04);
-  transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease;
-}
-
-.nav-panel a:hover {
-  color: var(--text);
-  background: rgba(50, 206, 50, 0.1);
-  transform: translateX(2px);
-}
-
 .status-panel strong {
   display: block;
   margin-top: 0.35rem;
@@ -220,6 +201,67 @@ textarea {
 .workspace {
   display: grid;
   gap: 1.5rem;
+}
+
+.workspace-topbar {
+  display: grid;
+  gap: 1rem;
+  padding: 1.25rem 1.35rem;
+}
+
+.workspace-topbar__copy {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.workspace-topbar__copy h2 {
+  margin: 0;
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: clamp(2rem, 2.4vw, 2.7rem);
+  line-height: 0.96;
+  letter-spacing: 0.02em;
+}
+
+.workspace-topbar__copy p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.65;
+  max-width: 70ch;
+}
+
+.workspace-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.workspace-tab {
+  min-height: 48px;
+  padding: 0 1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(22, 49, 26, 0.08);
+  background: #fbfef9;
+  color: var(--muted);
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+
+.workspace-tab:hover {
+  color: var(--text);
+  background: rgba(50, 206, 50, 0.08);
+  border-color: rgba(50, 206, 50, 0.22);
+  transform: translateY(-1px);
+}
+
+.workspace-tab.is-active {
+  background: linear-gradient(135deg, rgba(50, 206, 50, 0.16), rgba(223, 247, 214, 0.9));
+  border-color: rgba(50, 206, 50, 0.28);
+  color: var(--text);
+  font-weight: 700;
+}
+
+.workspace-pane {
+  display: grid;
+  gap: 1rem;
 }
 
 .hero-panel {
@@ -457,6 +499,32 @@ textarea {
 .company-card {
   display: grid;
   gap: 1.05rem;
+  border-width: 1px;
+}
+
+.company-card--uncontacted {
+  background: linear-gradient(180deg, rgba(255, 123, 114, 0.08), rgba(255, 255, 255, 0.96));
+  border-color: rgba(255, 123, 114, 0.22);
+}
+
+.company-card--contacted {
+  background: linear-gradient(180deg, rgba(255, 211, 122, 0.14), rgba(255, 255, 255, 0.96));
+  border-color: rgba(255, 211, 122, 0.24);
+}
+
+.company-card--active {
+  background: linear-gradient(180deg, rgba(112, 194, 255, 0.12), rgba(255, 255, 255, 0.96));
+  border-color: rgba(112, 194, 255, 0.24);
+}
+
+.company-card--confirmed {
+  background: linear-gradient(180deg, rgba(50, 206, 50, 0.1), rgba(255, 255, 255, 0.96));
+  border-color: rgba(50, 206, 50, 0.22);
+}
+
+.company-card--closed {
+  background: linear-gradient(180deg, rgba(22, 49, 26, 0.04), rgba(255, 255, 255, 0.96));
+  border-color: rgba(22, 49, 26, 0.12);
 }
 
 .company-avatar {
@@ -1751,6 +1819,11 @@ textarea {
   color: #1d7f1d;
 }
 
+.badge--info {
+  background: rgba(112, 194, 255, 0.18);
+  color: #216289;
+}
+
 .badge--danger {
   background: rgba(255, 123, 114, 0.16);
   color: #ff9f97;
@@ -1936,6 +2009,16 @@ textarea {
   .modal-card {
     padding: 1rem;
     border-radius: 22px;
+  }
+
+  .workspace-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 0.2rem;
+  }
+
+  .workspace-tab {
+    flex: 0 0 auto;
   }
 
   .toolbar,

@@ -404,7 +404,34 @@ function textSnippet(text = "", maxLength = 2200) {
   return normalizeWhitespace(text).slice(0, maxLength);
 }
 
-function extractEmails(text = "", pageUrl = "") {
+function normalizeEmailCandidate(email = "") {
+  return String(email || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^mailto:/i, "")
+    .replace(/[),;:]+$/g, "")
+    .replace(/^["'<\[]+|[>"'\]]+$/g, "");
+}
+
+function extractObfuscatedEmailCandidates(text = "") {
+  const source = String(text || "");
+  if (!source.trim()) {
+    return [];
+  }
+
+  const normalized = source
+    .replace(/\u00a0/g, " ")
+    .replace(/\s*(?:\[|\()?\s*at\s*(?:\]|\))?\s*/gi, "@")
+    .replace(/\s*(?:\[|\()?\s*dot\s*(?:\]|\))?\s*/gi, ".")
+    .replace(/\s*\{\s*at\s*\}\s*/gi, "@")
+    .replace(/\s*\{\s*dot\s*\}\s*/gi, ".")
+    .replace(/\s+@\s+/g, "@")
+    .replace(/\s+\.\s+/g, ".");
+
+  return [...normalized.matchAll(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi)].map((match) => match[0]);
+}
+
+function isLikelyPlaceholderEmail(email = "") {
   const placeholderDomains = [
     "example.com",
     "domain.com",
@@ -427,12 +454,36 @@ function extractEmails(text = "", pageUrl = "") {
     "first.last",
     "first_last"
   ];
-  const matches = [...String(text || "").matchAll(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi)];
+  const [localPart = "", domain = ""] = String(email || "").split("@");
+  if (!localPart || !domain) {
+    return true;
+  }
+
+  if (placeholderDomains.includes(domain) || placeholderLocalParts.includes(localPart)) {
+    return true;
+  }
+
+  if (/^(user|name|email|firstname|lastname|test)[._-]?(name|email|domain|lastname)?$/i.test(localPart)) {
+    return true;
+  }
+
+  if (/^(your|my|sample|demo|placeholder)/i.test(localPart)) {
+    return true;
+  }
+
+  return false;
+}
+
+function extractEmails(text = "", pageUrl = "") {
+  const rawText = String(text || "");
+  const directMatches = [...rawText.matchAll(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi)].map((match) => match[0]);
+  const obfuscatedMatches = extractObfuscatedEmailCandidates(rawText);
+  const mailtoMatches = [...rawText.matchAll(/mailto:([^"'?\s>]+)/gi)].map((match) => match[1]);
   const seen = new Set();
-  return matches
-    .map((match) => match[0].toLowerCase())
+  return [...directMatches, ...obfuscatedMatches, ...mailtoMatches]
+    .map((entry) => normalizeEmailCandidate(entry))
     .filter((email) => {
-      if (seen.has(email)) {
+      if (!email || seen.has(email)) {
         return false;
       }
       seen.add(email);
@@ -446,15 +497,11 @@ function extractEmails(text = "", pageUrl = "") {
         return false;
       }
 
-      if (placeholderDomains.includes(domain) || placeholderLocalParts.includes(localPart)) {
+      if (isLikelyPlaceholderEmail(email)) {
         return false;
       }
 
-      if (/^(user|name|email|firstname|lastname|test)[._-]?(name|email|domain|lastname)?$/i.test(localPart)) {
-        return false;
-      }
-
-      if (/^(your|my|sample|demo|placeholder)/i.test(localPart)) {
+      if (/\.(css|js|svg|gif)$/i.test(domain)) {
         return false;
       }
 
@@ -610,6 +657,101 @@ function guessNameFromEmail(email = "") {
     .join(" ");
 }
 
+function inferEmailCandidates({ contacts = [], emails = [], website = "" } = {}) {
+  if (!contacts.length) {
+    return [];
+  }
+
+  let domain = "";
+  try {
+    const hostname = new URL(website).hostname.replace(/^www\./i, "");
+    if (!/^((api|app|login|portal)\.)/i.test(hostname)) {
+      domain = hostname;
+    }
+  } catch {
+    domain = "";
+  }
+
+  if (!domain) {
+    const knownDomain = emails.find((entry) => String(entry.email || "").includes("@"))?.email?.split("@")[1];
+    domain = knownDomain || "";
+  }
+
+  if (!domain) {
+    return [];
+  }
+
+  const confirmedPatterns = emails
+    .map((entry) => {
+      const guessedName = guessNameFromEmail(entry.email);
+      if (!guessedName) {
+        return null;
+      }
+
+      const [first = "", last = ""] = guessedName.toLowerCase().split(/\s+/);
+      const localPart = String(entry.email || "").split("@")[0].toLowerCase();
+      if (!first || !last) {
+        return null;
+      }
+
+      if (localPart === `${first}.${last}`) return "first.last";
+      if (localPart === `${first}${last}`) return "firstlast";
+      if (localPart === `${first[0]}${last}`) return "flast";
+      if (localPart === `${first}${last[0]}`) return "firstl";
+      if (localPart === first) return "first";
+      return null;
+    })
+    .filter(Boolean);
+
+  const patternPriority = confirmedPatterns.length
+    ? [...new Set(confirmedPatterns)]
+    : ["first.last", "flast", "firstlast"];
+
+  const inferred = [];
+  const seen = new Set(emails.map((entry) => normalizeEmailCandidate(entry.email)));
+
+  for (const contact of contacts) {
+    const parts = String(contact.name || "")
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((part) => part.replace(/[^a-z'-]/gi, "").toLowerCase());
+    const first = parts[0] || "";
+    const last = parts[parts.length - 1] || "";
+    if (!first || !last) {
+      continue;
+    }
+
+    const candidates = patternPriority
+      .map((pattern) => {
+        if (pattern === "first.last") return `${first}.${last}@${domain}`;
+        if (pattern === "firstlast") return `${first}${last}@${domain}`;
+        if (pattern === "flast") return `${first[0]}${last}@${domain}`;
+        if (pattern === "firstl") return `${first}${last[0]}@${domain}`;
+        if (pattern === "first") return `${first}@${domain}`;
+        return "";
+      })
+      .filter(Boolean);
+
+    const chosen = candidates.find((email) => !seen.has(email) && !isLikelyPlaceholderEmail(email));
+    if (!chosen) {
+      continue;
+    }
+
+    seen.add(chosen);
+    inferred.push({
+      email: chosen,
+      source: website,
+      inferred: true,
+      contactName: contact.name || "",
+      contactRole: contact.role || "",
+      patternLabel: patternPriority[0] || "first.last"
+    });
+  }
+
+  return inferred.slice(0, 8);
+}
+
 function getPageAreaLabel(pages = [], sourceUrl = "") {
   if (!sourceUrl || !pages.length) {
     return "Public page";
@@ -681,25 +823,75 @@ function buildEmailMatches({ contacts = [], emails = [], pages = [] }) {
         source: entry.source || "",
         areaLabel: getPageAreaLabel(pages, entry.source),
         contactName:
-          bestContact?.score >= 3
+          entry.contactName ||
+          (bestContact?.score >= 3
             ? bestContact.contact.name
-            : guessedName,
-        contactRole: bestContact?.score >= 3 ? bestContact.contact.role || "" : "",
+            : guessedName),
+        contactRole: entry.contactRole || (bestContact?.score >= 3 ? bestContact.contact.role || "" : ""),
         matchReason:
-          bestContact?.score >= 5
-            ? "Matched to a named contact on the same public page."
-            : bestContact?.score >= 3
-              ? "Email pattern appears to match a named contact."
-              : guessedName
-                ? "Name guessed from the public email format."
-                : isGeneric
-                  ? "Generic public company inbox."
-                  : "Public email found on the scanned page.",
-        specificityScore: bestContact?.score || (guessedName ? 2 : isGeneric ? 0 : 1)
+          entry.inferred
+            ? `Likely inferred from the person's name and the company domain (${entry.patternLabel || "common format"}).`
+            : bestContact?.score >= 5
+              ? "Matched to a named contact on the same public page."
+              : bestContact?.score >= 3
+                ? "Email pattern appears to match a named contact."
+                : guessedName
+                  ? "Name guessed from the public email format."
+                  : isGeneric
+                    ? "Generic public company inbox."
+                    : "Public email found on the scanned page.",
+        specificityScore: entry.inferred ? 1.5 : bestContact?.score || (guessedName ? 2 : isGeneric ? 0 : 1),
+        inferred: Boolean(entry.inferred)
       };
     })
     .sort((left, right) => right.specificityScore - left.specificityScore)
-    .slice(0, 10);
+    .slice(0, 12);
+}
+
+function looksLikeArticlePath(url = "") {
+  try {
+    const parsed = new URL(url);
+    const path = parsed.pathname.toLowerCase();
+    const depth = path.split("/").filter(Boolean).length;
+    return depth >= 2 && /(blog|blogs|news|article|articles|insight|insights|resources|press|stories|story)/.test(path);
+  } catch {
+    return false;
+  }
+}
+
+function looksLikeCompanyDirectoryResult(title = "", snippet = "") {
+  const haystack = `${title} ${snippet}`.toLowerCase();
+  return /(official site|official website|contact us|about us|our team|head office|company overview|partnerships?)/.test(
+    haystack
+  );
+}
+
+function buildIndustrySearchQueries(industry = "", context = "") {
+  const normalizedIndustry = normalizeWhitespace(industry);
+  const normalizedContext = normalizeWhitespace(context);
+  return [
+    `${normalizedIndustry} companies uk sponsorship`,
+    `${normalizedIndustry} companies uk`,
+    `${normalizedIndustry} business uk`,
+    normalizedContext ? `${normalizedIndustry} ${normalizedContext} company uk` : "",
+    normalizedContext ? `${normalizedIndustry} ${normalizedContext} sponsor` : "",
+    normalizedContext ? `${normalizedContext} ${normalizedIndustry} official site` : ""
+  ]
+    .map((entry) => normalizeWhitespace(entry))
+    .filter(Boolean);
+}
+
+function buildCompanySearchQueries(companyName = "", context = "") {
+  const normalizedName = normalizeWhitespace(companyName);
+  const normalizedContext = normalizeWhitespace(context);
+  return [
+    `"${normalizedName}" official website ${normalizedContext} uk`,
+    `${normalizedName} ${normalizedContext} official website`,
+    `${normalizedName} ${normalizedContext} company`,
+    `"${normalizedName}" ${normalizedContext}`
+  ]
+    .map((entry) => normalizeWhitespace(entry))
+    .filter(Boolean);
 }
 
 function dedupeBy(items = [], keyFn) {
@@ -925,7 +1117,10 @@ function parseSearchResults(html = "") {
     "baidu.com",
     "quora.com",
     "pinterest.com",
-    "tiktok.com"
+    "tiktok.com",
+    "medium.com",
+    "substack.com",
+    "wordpress.com"
   ];
   const blocks = [...String(html || "").matchAll(/<li\b[^>]*class="[^"]*b_algo[^"]*"[\s\S]*?<\/li>/gi)];
 
@@ -945,6 +1140,10 @@ function parseSearchResults(html = "") {
         const url = new URL(normalized);
         const hostname = url.hostname.toLowerCase();
         if (exclusions.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`))) {
+          return null;
+        }
+
+        if (looksLikeArticlePath(url.toString()) && !looksLikeCompanyDirectoryResult(linkMatch?.[2] || "", snippetMatch?.[1] || "")) {
           return null;
         }
 
@@ -984,6 +1183,20 @@ function candidateLooksRelevant(candidate, { companyName = "", context = "", com
     candidate.website || ""
   }`.toLowerCase();
 
+  if (companySearchMode === "industry") {
+    const industryMatches = countMatchedTokens(companyTokens, haystack);
+    const contextMatches = countMatchedTokens(contextTokens, haystack);
+    const hasOfficialStyleSignal =
+      /official|contact|about|team|company|group|services|solutions/.test(haystack) ||
+      !looksLikeArticlePath(candidate.website || "");
+
+    if (!companyTokens.length && !contextTokens.length) {
+      return true;
+    }
+
+    return (industryMatches > 0 || contextMatches > 0) && hasOfficialStyleSignal;
+  }
+
   const companyMatches = countMatchedTokens(companyTokens, haystack);
   if (companyTokens.length === 1 && companyMatches < 1) {
     return false;
@@ -1017,14 +1230,20 @@ function scoreCompanyCandidate(candidate, { companyName = "", context = "", comp
   if (nameQuery && haystack.includes(nameQuery)) {
     score += 6;
   }
-  if (candidate.companyName && candidate.companyName.toLowerCase() === nameQuery) {
+  if (companySearchMode !== "industry" && candidate.companyName && candidate.companyName.toLowerCase() === nameQuery) {
     score += 4;
   }
-  if (candidate.website && candidate.website.toLowerCase().includes(nameQuery.replace(/\s+/g, ""))) {
+  if (companySearchMode !== "industry" && candidate.website && candidate.website.toLowerCase().includes(nameQuery.replace(/\s+/g, ""))) {
     score += 3;
   }
-  if (candidate.title && candidate.title.toLowerCase().startsWith(nameQuery)) {
+  if (companySearchMode !== "industry" && candidate.title && candidate.title.toLowerCase().startsWith(nameQuery)) {
     score += 3;
+  }
+
+  if (companySearchMode === "industry") {
+    const industryTokens = tokenizeSearchTerms(companyName);
+    const industryMatches = countMatchedTokens(industryTokens, haystack);
+    score += industryMatches * 3;
   }
 
   const contextScore = contextTerms.reduce(
@@ -1053,6 +1272,10 @@ function scoreCompanyCandidate(candidate, { companyName = "", context = "", comp
 
     if (/(personal|products?|services?|careers?|jobs|blog|news|docs|support|help|resources)/i.test(path)) {
       score -= 4;
+    }
+
+    if (looksLikeArticlePath(candidate.website || "")) {
+      score -= 8;
     }
 
     if (/\.(pdf|docx?|xlsx?)$/i.test(path)) {
@@ -1111,13 +1334,14 @@ function buildCompanyCandidateSummary(candidate, { combinedText = "", descriptio
 async function enrichCompanyCandidateForSponsorship(candidate) {
   const baseScore = Number(candidate.score || 0);
   let score = baseScore;
-  let summaryLine = truncateOneLine(candidate.snippet || candidate.title || candidate.companyName || "", 150);
+  let summaryLine = truncateOneLine(candidate.snippet || candidate.title || candidate.companyName || "", 100);
+  let fullSummary = "";
   let sponsorSignals = [];
   let sponsorEmail = "";
 
   try {
     const homePage = await fetchResearchPage(candidate.website || "");
-    const scoutLinks = chooseResearchLinks(homePage).slice(0, 2);
+    const scoutLinks = chooseResearchLinks(homePage).slice(0, 6);
     const extraPages = [];
 
     for (const link of scoutLinks) {
@@ -1189,6 +1413,16 @@ async function enrichCompanyCandidateForSponsorship(candidate) {
       combinedText,
       description: homePage.description || ""
     });
+    fullSummary = truncateOneLine(
+      [
+        homePage.description || "",
+        textSnippet(combinedText, 420),
+        sponsorSignals.length ? `Signals: ${sponsorSignals.join(" | ")}.` : ""
+      ]
+        .filter(Boolean)
+        .join(" "),
+      420
+    );
   } catch (error) {
     if (error?.status === 401 || error?.status === 403 || error?.status === 429) {
       score -= 2;
@@ -1200,6 +1434,7 @@ async function enrichCompanyCandidateForSponsorship(candidate) {
     ...candidate,
     score,
     summaryLine,
+    fullSummary: fullSummary || truncateOneLine(candidate.snippet || candidate.title || "", 320),
     sponsorSignals: sponsorSignals.slice(0, 3),
     sponsorSignalsLine: truncateOneLine(sponsorSignals.slice(0, 2).join(" | "), 150),
     sponsorEmail,
@@ -1235,20 +1470,11 @@ async function discoverCompanyCandidatesFromSearch({
 } = {}) {
   const query = String(companyName || "").trim();
   if (!query) {
-    throw new Error("Add a company name first.");
+    throw new Error(companySearchMode === "industry" ? "Add an industry first." : "Add a company name first.");
   }
 
   const searchQueries = dedupeBy(
-    [
-      companySearchMode === "industry" && context
-        ? `"${query}" ${context} company official website uk`
-        : `"${query}" official website ${context} uk`,
-      `${query} ${context} official website`,
-      `${query} ${context} company`,
-      `"${query}" ${context}`
-    ]
-      .map((entry) => normalizeWhitespace(entry))
-      .filter(Boolean),
+    companySearchMode === "industry" ? buildIndustrySearchQueries(query, context) : buildCompanySearchQueries(query, context),
     (entry) => entry.toLowerCase()
   );
 
@@ -1285,7 +1511,7 @@ async function discoverCompanyCandidatesFromSearch({
     (candidate) => candidate.website
   )
     .sort((left, right) => right.score - left.score)
-    .slice(0, 8);
+    .slice(0, companySearchMode === "industry" ? 14 : 8);
 
   if (!candidates.length) {
     throw new Error("Could not find likely company websites from that search. Try a more specific company name or context.");
@@ -1312,19 +1538,33 @@ function chooseResearchLinks(homePage) {
   const baseOrigin = new URL(baseUrl).origin;
   const pageHints = [
     "about",
+    "about-us",
     "contact",
+    "contact-us",
+    "get-in-touch",
     "team",
     "people",
     "leadership",
+    "staff",
+    "our-team",
     "sponsor",
     "sponsorship",
     "partners",
     "partnership",
+    "collaborate",
+    "corporate",
     "support",
     "community",
     "sustainability",
+    "csr",
+    "responsibility",
+    "education",
+    "schools",
+    "outreach",
     "careers",
-    "news"
+    "news",
+    "press",
+    "media"
   ];
 
   const sameOriginLinks = extractLinks(homePage.html, baseUrl)
@@ -1345,7 +1585,7 @@ function chooseResearchLinks(homePage) {
     }
   }).filter(Boolean);
 
-  return dedupeBy([...sameOriginLinks, ...guessedLinks], (link) => link.url).slice(0, 6);
+  return dedupeBy([...sameOriginLinks, ...guessedLinks], (link) => link.url).slice(0, 10);
 }
 
 async function tryFetchResearchPages(seedUrl) {
@@ -1560,10 +1800,16 @@ async function researchCompanyWebsite({
     pages.flatMap((page) => extractContactCandidates(page.text, page.url)),
     (contact) => `${contact.name}|${contact.role}`
   ).slice(0, 6);
-  const emails = dedupeBy(
+  const publicEmails = dedupeBy(
     pages.flatMap((page) => extractEmails(`${page.html}\n${page.text}`, page.url)),
     (entry) => entry.email
-  ).slice(0, 8);
+  ).slice(0, 14);
+  const inferredEmails = inferEmailCandidates({
+    contacts,
+    emails: publicEmails,
+    website: normalizedWebsite
+  });
+  const emails = dedupeBy([...publicEmails, ...inferredEmails], (entry) => entry.email).slice(0, 18);
   const emailMatches = buildEmailMatches({ contacts, emails, pages });
   const phones = dedupeBy(
     pages.flatMap((page) => extractPhones(page.text, page.url)),
