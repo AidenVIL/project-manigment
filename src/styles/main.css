@@ -470,7 +470,7 @@ textarea {
 
 .toolbar {
   display: grid;
-  grid-template-columns: 1.3fr 0.8fr auto;
+  grid-template-columns: minmax(220px, 1.35fr) repeat(4, minmax(150px, 0.8fr)) auto;
   gap: 1rem;
   align-items: end;
 }
@@ -1070,6 +1070,19 @@ textarea {
   background: #f7fbf5;
   color: var(--muted);
   line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.token-chip-inline {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.45rem;
+  margin: 0 0.2rem;
+  border-radius: 999px;
+  background: rgba(255, 92, 167, 0.18);
+  color: #9f004e;
+  font-weight: 600;
+  font-size: 0.86em;
 }
 
 .template-card-actions {
@@ -1344,8 +1357,8 @@ textarea {
   width: fit-content;
   padding: 0.12rem 0.45rem;
   border-radius: 999px;
-  background: rgba(50, 206, 50, 0.12);
-  color: #1f641f;
+  background: rgba(255, 92, 167, 0.18);
+  color: #9f004e;
   font-size: 0.78rem;
 }
 
@@ -1441,6 +1454,22 @@ textarea {
 
 .writing-coach__summary {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.writing-coach__issue {
+  margin: 0;
+  padding: 0.55rem 0.7rem;
+  border-radius: 12px;
+  background: rgba(255, 92, 167, 0.08);
+  color: var(--text);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.writing-coach__issue u {
+  text-decoration-thickness: 2px;
+  text-underline-offset: 2px;
+  text-decoration-color: #ff5ca7;
 }
 
 .inspector-toolbar {
@@ -1589,7 +1618,7 @@ textarea {
 }
 
 .finder-workspace--split {
-  grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
   align-items: start;
 }
 
@@ -1710,10 +1739,24 @@ textarea {
 }
 
 .finder-item__meta small {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  display: block;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.finder-summary-line {
+  display: block;
+  white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.finder-full-summary {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.58;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .finder-item__badge {

@@ -84,7 +84,7 @@ function renderVariablesPanel(previewTokens) {
                         >
                           <strong>${escapeHtml(item.label)}</strong>
                           <span>${escapeHtml(item.help)}</span>
-                          <code>${escapeHtml(item.token)}</code>
+                          <code>${escapeHtml(item.key || item.token)}</code>
                           <small>Example: ${escapeHtml(String(previewTokens?.[item.key] || "Not available yet"))}</small>
                         </button>
                       `
@@ -414,6 +414,11 @@ function renderWritingCoach(preview) {
                     <article class="writing-coach__card">
                       <h4>${escapeHtml(suggestion.title)}</h4>
                       <p>${escapeHtml(suggestion.detail)}</p>
+                      ${
+                        suggestion.snippet
+                          ? `<p class="writing-coach__issue"><u>${escapeHtml(suggestion.snippet)}</u></p>`
+                          : ""
+                      }
                     </article>
                   `
                 )

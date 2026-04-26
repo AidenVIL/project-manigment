@@ -1,5 +1,6 @@
 import { APP_CONFIG, isSupabaseConfigured } from "./config/runtime-config.js";
 import { askTypeOptions, createCompany, getOptionLabel } from "./models/company-model.js";
+import { accountService } from "./services/account-service.js";
 import { authService } from "./services/auth-service.js";
 import {
   buildCalendarEvents,
@@ -20,6 +21,7 @@ import { renderCalendarView } from "./ui/views/calendar-view.js";
 import { renderCompaniesView } from "./ui/views/companies-view.js";
 import { renderDashboardView } from "./ui/views/dashboard-view.js";
 import { renderMailboxView } from "./ui/views/mailbox-view.js";
+import { renderAccountsView } from "./ui/views/accounts-view.js";
 import { renderTemplateEditorView } from "./ui/views/template-editor-view.js";
 import { renderEmailStudioView } from "./ui/views/template-hub-view.js";
 import { addDaysToInputDate } from "./utils/date-utils.js";
@@ -67,6 +69,13 @@ const workspaceViews = [
     description: "Search the team mailbox, review incoming replies, and send direct follow-ups."
   },
   {
+    id: "accounts",
+    label: "Accounts",
+    eyebrow: "Access",
+    title: "Team usernames",
+    description: "Pre-add teammate usernames and manage first-login password setup."
+  },
+  {
     id: "emails",
     label: "Email Studio",
     eyebrow: "Templates",
@@ -83,7 +92,10 @@ const state = {
   drafts: [],
   filters: {
     search: "",
-    status: "all"
+    status: "all",
+    responseStatus: "all",
+    askType: "all",
+    sortBy: "updated_desc"
   },
   modal: {
     open: false,
@@ -100,6 +112,7 @@ const state = {
     finderWebsite: "",
     finderContext: "",
     selectedCompanyCandidateId: "",
+    appliedCompanyCandidateId: "",
     completedResearchEntries: []
   },
   mailbox: {
@@ -112,6 +125,15 @@ const state = {
     selectedMessageId: "",
     selectedMessage: null,
     error: ""
+  },
+  accounts: {
+    loading: false,
+    users: [],
+    error: ""
+  },
+  auth: {
+    mode: "login",
+    setupUsername: ""
   },
   calendar: {
     referenceDate: new Date().toISOString().slice(0, 10),
@@ -206,17 +228,45 @@ function setWorkspaceView(viewId) {
 
 function getFilteredCompanies() {
   const searchQuery = state.filters.search.trim().toLowerCase();
-
-  return state.companies.filter((company) => {
-    const matchesStatus =
-      state.filters.status === "all" || company.status === state.filters.status;
+  const filtered = state.companies.filter((company) => {
+    const matchesStatus = state.filters.status === "all" || company.status === state.filters.status;
+    const matchesResponseStatus =
+      state.filters.responseStatus === "all" || company.responseStatus === state.filters.responseStatus;
+    const matchesAskType = state.filters.askType === "all" || company.askType === state.filters.askType;
     const matchesSearch =
       !searchQuery ||
       company.companyName.toLowerCase().includes(searchQuery) ||
-      company.contactName.toLowerCase().includes(searchQuery);
+      company.contactName.toLowerCase().includes(searchQuery) ||
+      company.contactEmail.toLowerCase().includes(searchQuery) ||
+      company.sector.toLowerCase().includes(searchQuery);
 
-    return matchesStatus && matchesSearch;
+    return matchesStatus && matchesResponseStatus && matchesAskType && matchesSearch;
   });
+
+  const sorted = [...filtered];
+  switch (state.filters.sortBy) {
+    case "alpha_asc":
+      sorted.sort((a, b) => a.companyName.localeCompare(b.companyName));
+      break;
+    case "alpha_desc":
+      sorted.sort((a, b) => b.companyName.localeCompare(a.companyName));
+      break;
+    case "next_follow_up":
+      sorted.sort((a, b) => String(a.nextFollowUp || "9999-12-31").localeCompare(String(b.nextFollowUp || "9999-12-31")));
+      break;
+    case "ask_desc":
+      sorted.sort((a, b) => Number(b.askValue || 0) - Number(a.askValue || 0));
+      break;
+    case "confirmed_desc":
+      sorted.sort((a, b) => Number(b.contributionValue || 0) - Number(a.contributionValue || 0));
+      break;
+    case "updated_desc":
+    default:
+      sorted.sort((a, b) => String(b.lastUpdated || b.updatedAt || "").localeCompare(String(a.lastUpdated || a.updatedAt || "")));
+      break;
+  }
+
+  return sorted;
 }
 
 function getCalendarEvents() {
@@ -293,6 +343,7 @@ function resetModalResearchState() {
   state.modal.finderWebsite = "";
   state.modal.finderContext = "";
   state.modal.selectedCompanyCandidateId = "";
+  state.modal.appliedCompanyCandidateId = "";
   state.modal.completedResearchEntries = [];
 }
 
@@ -442,9 +493,10 @@ function applyResearchCompanyCandidate(candidate) {
     companyName: candidate.companyName || state.modal.draft.companyName,
     website: candidate.website || state.modal.draft.website,
     sector: candidate.industry || candidate.sector || state.modal.draft.sector,
-    researchSummary: candidate.summaryLine || state.modal.draft.researchSummary,
+    researchSummary: candidate.fullSummary || candidate.summaryLine || state.modal.draft.researchSummary,
     personalizationNotes: candidate.sponsorSignalsLine || state.modal.draft.personalizationNotes
   });
+  state.modal.appliedCompanyCandidateId = candidate.id;
 }
 
 function showToast(message) {
@@ -778,6 +830,7 @@ function renderShell() {
   const modeLabel = isLiveMode() ? "Live Supabase mode" : "Demo mode";
   const workflowContext = getFollowUpWorkflowContext();
   const activeView = getWorkspaceView();
+  const currentUser = authService.getUser();
   const activeWorkspaceMarkup =
     activeView.id === "overview"
       ? renderDashboardView({ config: APP_CONFIG, snapshot })
@@ -788,10 +841,17 @@ function renderShell() {
             totalCompanies: state.companies.length
           })
         : activeView.id === "calendar"
-          ? renderCalendarView({ events, summary, calendarMonth })
-          : activeView.id === "mailbox"
-            ? renderMailboxView({
-                mailbox: state.mailbox
+        ? renderCalendarView({ events, summary, calendarMonth })
+        : activeView.id === "mailbox"
+          ? renderMailboxView({
+              mailbox: state.mailbox
+            })
+          : activeView.id === "accounts"
+            ? renderAccountsView({
+                users: state.accounts.users,
+                loading: state.accounts.loading,
+                error: state.accounts.error,
+                canManage: (currentUser?.role || "member") === "admin"
               })
             : renderEmailStudioView({
                 templates: state.templates,
@@ -823,14 +883,10 @@ function renderShell() {
           </p>
           ${
             isPasswordGateEnabled()
-              ? `<button type="button" class="ghost-button" data-action="sign-out">Sign Out</button>`
+              ? `<p>Signed in as <strong>${escapeHtml(currentUser?.username || "shared")}</strong></p>
+                 <button type="button" class="ghost-button" data-action="sign-out">Sign Out</button>`
               : ""
           }
-        </div>
-        <div class="sidebar-panel status-panel">
-          <span class="metric-label">Current Workspace</span>
-          <strong>${escapeHtml(activeView.label)}</strong>
-          <p>${escapeHtml(activeView.description)}</p>
         </div>
       </aside>
       <main class="workspace">
@@ -905,7 +961,9 @@ function renderApp() {
   if (isPasswordGateEnabled() && !authService.isSignedIn()) {
     root.innerHTML = renderAuthView({
       config: APP_CONFIG,
-      loginError: state.loginError
+      loginError: state.loginError,
+      mode: state.auth.mode,
+      setupUsername: state.auth.setupUsername
     });
     return;
   }
@@ -947,8 +1005,11 @@ async function loadAppData() {
     syncEditorCompanyOptions();
     consumeOauthFeedback();
     await loadMailboxStatus();
+    await loadAccounts(false);
     state.loading = false;
     state.loginError = "";
+    state.auth.mode = "login";
+    state.auth.setupUsername = "";
     renderApp();
   } catch (error) {
     console.error(error);
@@ -968,11 +1029,11 @@ async function loadAppData() {
 async function init() {
   if (isPasswordGateEnabled()) {
     state.loading = false;
-      renderApp();
+    renderApp();
 
-      if (authService.isSignedIn()) {
-        await loadAppData();
-      }
+    if (authService.isSignedIn()) {
+      await loadAppData();
+    }
 
     return;
   }
@@ -999,6 +1060,32 @@ async function loadMailboxStatus() {
   } catch (error) {
     state.mailbox.connected = false;
     state.mailbox.error = error.message || "Could not load mailbox status.";
+  }
+}
+
+async function loadAccounts(showSpinner = true) {
+  if (!isSupabaseConfigured()) {
+    state.accounts.users = await accountService.listUsers();
+    state.accounts.error = "";
+    return;
+  }
+
+  if (showSpinner) {
+    state.accounts.loading = true;
+    state.accounts.error = "";
+    renderApp();
+  }
+
+  try {
+    state.accounts.users = await accountService.listUsers();
+    state.accounts.error = "";
+  } catch (error) {
+    state.accounts.error = error.message || "Could not load user accounts.";
+  } finally {
+    state.accounts.loading = false;
+    if (showSpinner) {
+      renderApp();
+    }
   }
 }
 
@@ -1561,14 +1648,54 @@ function deleteSelectedBlock() {
 
 async function handleLoginSubmit(form) {
   const formData = new FormData(form);
+  const mode = String(formData.get("mode") || "login");
+  const username = String(formData.get("username") || state.auth.setupUsername || "")
+    .trim()
+    .toLowerCase();
   const password = String(formData.get("password") || "");
+  const newPassword = String(formData.get("newPassword") || "");
+  const confirmPassword = String(formData.get("confirmPassword") || "");
 
   state.loading = true;
   state.loginError = "";
   renderApp();
 
   try {
-    await authService.signIn(password, APP_CONFIG.sitePassword);
+    if (mode === "setup") {
+      if (!newPassword || newPassword.length < 8) {
+        throw new Error("Use at least 8 characters for the new password.");
+      }
+      if (newPassword !== confirmPassword) {
+        throw new Error("Password confirmation does not match.");
+      }
+
+      await authService.completeFirstLogin(username, newPassword);
+      await authService.signIn(
+        {
+          username,
+          password: newPassword
+        },
+        APP_CONFIG.sitePassword
+      );
+    } else {
+      const result = await authService.signIn(
+        {
+          username,
+          password
+        },
+        APP_CONFIG.sitePassword
+      );
+
+      if (result.status === "setup_required") {
+        state.loading = false;
+        state.auth.mode = "setup";
+        state.auth.setupUsername = username;
+        state.loginError = `Welcome ${username}. Set your password to finish first login.`;
+        renderApp();
+        return;
+      }
+    }
+
     await loadAppData();
   } catch (error) {
     state.loading = false;
@@ -1658,6 +1785,7 @@ async function runCompanyResearch() {
     state.modal.researchLoading = false;
     state.modal.researchResult = buildResearchResultViewModel(result);
     state.modal.selectedCompanyCandidateId = result.companyCandidates?.[0]?.id || "";
+    state.modal.appliedCompanyCandidateId = "";
     if (!state.modal.draft.website && state.modal.researchResult?.website) {
       state.modal.draft = createCompany({
         ...state.modal.draft,
@@ -1789,6 +1917,9 @@ root.addEventListener("click", async (event) => {
       return;
     case "set-workspace-view":
       setWorkspaceView(id);
+      if (id === "accounts") {
+        await loadAccounts(false);
+      }
       renderApp();
       return;
     case "open-follow-up-workflow":
@@ -1823,6 +1954,7 @@ root.addEventListener("click", async (event) => {
       state.modal.researchError = "";
       state.modal.researchResult = null;
       state.modal.selectedCompanyCandidateId = "";
+      state.modal.appliedCompanyCandidateId = "";
       renderApp();
       return;
     case "preview-company-candidate": {
@@ -2077,11 +2209,36 @@ root.addEventListener("click", async (event) => {
       state.companies = [];
       state.templates = [];
       state.drafts = [];
+      state.accounts.users = [];
+      state.accounts.error = "";
       state.loginError = "";
+      state.auth.mode = "login";
+      state.auth.setupUsername = "";
       state.preferredCompanyId = "";
       state.editor = null;
       renderApp();
       return;
+    case "reset-user-password": {
+      const currentUser = authService.getUser();
+      if ((currentUser?.role || "member") !== "admin") {
+        showToast("Only admins can reset teammate passwords.");
+        return;
+      }
+
+      if (!window.confirm(`Force a password reset for ${id}?`)) {
+        return;
+      }
+
+      try {
+        await accountService.resetPassword(id);
+        await loadAccounts(false);
+        renderApp();
+        showToast("Password reset flag updated.");
+      } catch (error) {
+        showToast(error.message || "Could not reset that password.");
+      }
+      return;
+    }
     default:
       return;
   }
@@ -2218,6 +2375,24 @@ root.addEventListener("input", (event) => {
 root.addEventListener("change", async (event) => {
   if (event.target.id === "status-filter") {
     state.filters.status = event.target.value;
+    renderApp();
+    return;
+  }
+
+  if (event.target.id === "response-status-filter") {
+    state.filters.responseStatus = event.target.value;
+    renderApp();
+    return;
+  }
+
+  if (event.target.id === "ask-type-filter") {
+    state.filters.askType = event.target.value;
+    renderApp();
+    return;
+  }
+
+  if (event.target.id === "company-sort-filter") {
+    state.filters.sortBy = event.target.value;
     renderApp();
     return;
   }
@@ -2403,6 +2578,31 @@ root.addEventListener("submit", async (event) => {
     const formData = new FormData(event.target);
     state.mailbox.query = String(formData.get("query") || "");
     await loadMailboxMessages();
+    return;
+  }
+
+  if (event.target.id === "add-account-form") {
+    const currentUser = authService.getUser();
+    if ((currentUser?.role || "member") !== "admin") {
+      showToast("Only admins can add teammate usernames.");
+      return;
+    }
+
+    const formData = new FormData(event.target);
+    const username = String(formData.get("username") || "").trim().toLowerCase();
+    const role = String(formData.get("role") || "member").trim().toLowerCase();
+
+    try {
+      await accountService.createUser(username, role === "admin" ? "admin" : "member");
+      event.target.reset();
+      await loadAccounts(false);
+      renderApp();
+      showToast(`${username} added. They can set their password on first login.`);
+    } catch (error) {
+      state.accounts.error = error.message || "Could not add that username.";
+      renderApp();
+      showToast(state.accounts.error);
+    }
     return;
   }
 

@@ -1,6 +1,8 @@
 import { escapeHtml } from "../../utils/formatters.js";
 
-export function renderAuthView({ config, loginError }) {
+export function renderAuthView({ config, loginError, mode = "login", setupUsername = "" }) {
+  const isSetup = mode === "setup";
+
   return `
     <main class="auth-page">
       <section class="auth-panel">
@@ -11,8 +13,11 @@ export function renderAuthView({ config, loginError }) {
           <span class="eyebrow">Teammate Access</span>
           <h1>${escapeHtml(config.teamName)}</h1>
           <p>
-            Enter the shared team password to open the sponsor workspace and manage outreach,
-            follow-up dates, and email templates from one place.
+            ${
+              isSetup
+                ? "First login detected. Set a password for your username to finish account setup."
+                : "Log in with your username and password to open the sponsor workspace."
+            }
           </p>
           <ul class="auth-points">
             <li>Shared sponsor database via Supabase</li>
@@ -21,19 +26,46 @@ export function renderAuthView({ config, loginError }) {
           </ul>
         </div>
         <form id="login-form" class="auth-form">
+          <input type="hidden" name="mode" value="${isSetup ? "setup" : "login"}" />
           <label class="field">
-            <span>Shared Password</span>
-            <input type="password" name="password" placeholder="Enter team password" required />
+            <span>Username</span>
+            <input
+              type="text"
+              name="username"
+              placeholder="Enter your username"
+              value="${escapeHtml(setupUsername)}"
+              ${isSetup ? "readonly" : "required"}
+            />
           </label>
+          ${
+            isSetup
+              ? `
+                <label class="field">
+                  <span>Set Password</span>
+                  <input type="password" name="newPassword" placeholder="Create a password" required />
+                </label>
+                <label class="field">
+                  <span>Confirm Password</span>
+                  <input type="password" name="confirmPassword" placeholder="Re-enter password" required />
+                </label>
+              `
+              : `
+                <label class="field">
+                  <span>Password</span>
+                  <input type="password" name="password" placeholder="Enter your password" required />
+                </label>
+              `
+          }
           ${
             loginError
               ? `<div class="inline-message inline-message--danger">${escapeHtml(loginError)}</div>`
               : ""
           }
-          <button type="submit" class="primary-button primary-button--full">Unlock Workspace</button>
+          <button type="submit" class="primary-button primary-button--full">
+            ${isSetup ? "Save Password and Continue" : "Unlock Workspace"}
+          </button>
           <p class="auth-footnote">
-            Mk 1 uses one shared password in the frontend config. It is easy to use, but it is not
-            strong security for sensitive data.
+            User accounts can be pre-added by username. First login requires password setup.
           </p>
         </form>
       </section>

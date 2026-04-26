@@ -1,5 +1,28 @@
 import { escapeHtml, formatDate } from "../../utils/formatters.js";
 
+function renderTokenizedSubject(subject = "") {
+  const text = String(subject || "");
+  const tokenRegex = /{{\s*([a-z0-9_]+)\s*}}/gi;
+  let cursor = 0;
+  let match = null;
+  const chunks = [];
+
+  while ((match = tokenRegex.exec(text))) {
+    const [raw, key] = match;
+    if (match.index > cursor) {
+      chunks.push(escapeHtml(text.slice(cursor, match.index)));
+    }
+    chunks.push(`<span class="token-chip-inline">${escapeHtml(key)}</span>`);
+    cursor = match.index + raw.length;
+  }
+
+  if (cursor < text.length) {
+    chunks.push(escapeHtml(text.slice(cursor)));
+  }
+
+  return chunks.join("");
+}
+
 function renderTemplateCards(templates, drafts) {
   return templates
     .map((template) => {
@@ -14,7 +37,7 @@ function renderTemplateCards(templates, drafts) {
             </div>
             <span class="badge badge--outline">${escapeHtml(template.category)}</span>
           </div>
-          <p class="template-subject-line">${escapeHtml(template.subject)}</p>
+          <p class="template-subject-line">${renderTokenizedSubject(template.subject)}</p>
           <div class="template-card-actions">
             <button type="button" class="primary-button" data-action="open-template-editor" data-id="${template.id}">
               Edit Template

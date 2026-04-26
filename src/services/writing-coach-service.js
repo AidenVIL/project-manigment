@@ -25,6 +25,18 @@ function collectDraftText(design, tokens) {
     .join("\n\n");
 }
 
+function buildSnippet(text, index, length = 20, radius = 36) {
+  if (!text || index < 0) {
+    return "";
+  }
+
+  const start = Math.max(0, index - radius);
+  const end = Math.min(text.length, index + length + radius);
+  const prefix = start > 0 ? "..." : "";
+  const suffix = end < text.length ? "..." : "";
+  return `${prefix}${text.slice(start, end).trim()}${suffix}`.trim();
+}
+
 function detectTone(text) {
   const normalized = text.toLowerCase();
   const casualMarkers = ["hey", "awesome", "super", "gonna", "wanna", "kinda", "cool"];
@@ -65,36 +77,64 @@ function detectTone(text) {
 function buildSuggestions(subject, bodyText) {
   const combined = `${subject}\n${bodyText}`.trim();
   const suggestions = [];
-  const pushSuggestion = (title, detail) => {
+  const pushSuggestion = (title, detail, snippet = "") => {
     if (suggestions.some((item) => item.title === title)) {
       return;
     }
 
-    suggestions.push({ title, detail });
+    suggestions.push({ title, detail, snippet });
   };
 
   if (!subject.trim()) {
-    pushSuggestion("Add a subject line", "A clear subject helps the message feel complete and easier to track.");
+    pushSuggestion(
+      "Add a subject line",
+      "A clear subject helps the message feel complete and easier to track."
+    );
   }
 
-  if (/ {2,}/.test(combined)) {
-    pushSuggestion("Trim extra spaces", "There are double spaces in the draft that can make the email look unfinished.");
+  const extraSpacesMatch = combined.match(/ {2,}/);
+  if (extraSpacesMatch?.index != null) {
+    pushSuggestion(
+      "Trim extra spaces",
+      "There are double spaces in the draft that can make the email look unfinished.",
+      buildSnippet(combined, extraSpacesMatch.index, extraSpacesMatch[0].length)
+    );
   }
 
-  if (/\b(i)\b/.test(combined)) {
-    pushSuggestion("Capitalise standalone 'I'", "There is at least one lowercase 'i' that should be capitalised.");
+  const lowercaseIMatch = combined.match(/\bi\b/);
+  if (lowercaseIMatch?.index != null) {
+    pushSuggestion(
+      "Capitalise standalone 'I'",
+      "There is at least one lowercase 'i' that should be capitalised.",
+      buildSnippet(combined, lowercaseIMatch.index, lowercaseIMatch[0].length)
+    );
   }
 
-  if (/(^|[.!?]\s+)([a-z])/.test(combined)) {
-    pushSuggestion("Check sentence capitals", "One or more sentences may start with a lowercase letter.");
+  const sentenceCaseMatch = combined.match(/(^|[.!?]\s+)([a-z])/);
+  if (sentenceCaseMatch?.index != null) {
+    pushSuggestion(
+      "Check sentence capitals",
+      "One or more sentences may start with a lowercase letter.",
+      buildSnippet(combined, sentenceCaseMatch.index, sentenceCaseMatch[0].length)
+    );
   }
 
-  if (/(\b\w+\b)\s+\1\b/i.test(combined)) {
-    pushSuggestion("Remove repeated words", "There is a repeated word in the draft that reads like a typo.");
+  const repeatedWordMatch = combined.match(/(\b\w+\b)\s+\1\b/i);
+  if (repeatedWordMatch?.index != null) {
+    pushSuggestion(
+      "Remove repeated words",
+      "There is a repeated word in the draft that reads like a typo.",
+      buildSnippet(combined, repeatedWordMatch.index, repeatedWordMatch[0].length)
+    );
   }
 
-  if (/!!+|\?\?+/.test(combined)) {
-    pushSuggestion("Tone down punctuation", "Multiple exclamation or question marks can make the email feel too intense.");
+  const punctuationBurstMatch = combined.match(/!!+|\?\?+/);
+  if (punctuationBurstMatch?.index != null) {
+    pushSuggestion(
+      "Tone down punctuation",
+      "Multiple exclamation or question marks can make the email feel too intense.",
+      buildSnippet(combined, punctuationBurstMatch.index, punctuationBurstMatch[0].length)
+    );
   }
 
   const longSentence = bodyText
@@ -102,7 +142,11 @@ function buildSuggestions(subject, bodyText) {
     .map((sentence) => sentence.trim())
     .find((sentence) => sentence.split(/\s+/).filter(Boolean).length > 30);
   if (longSentence) {
-    pushSuggestion("Break up long sentences", "One of the sentences is quite long. Shorter lines will read more cleanly.");
+    pushSuggestion(
+      "Break up long sentences",
+      "One of the sentences is quite long. Shorter lines will read more cleanly.",
+      longSentence.slice(0, 140)
+    );
   }
 
   if (!/\b(hi|dear)\b/i.test(bodyText)) {
@@ -126,12 +170,17 @@ function buildSuggestions(subject, bodyText) {
   ];
 
   spellingPatterns.forEach(({ pattern, fix }) => {
-    if (pattern.test(combined)) {
-      pushSuggestion("Possible spelling issue", `One word looks misspelled. A likely correction is "${fix}".`);
+    const match = combined.match(pattern);
+    if (match?.index != null) {
+      pushSuggestion(
+        "Possible spelling issue",
+        `One word looks misspelled. A likely correction is "${fix}".`,
+        buildSnippet(combined, match.index, match[0].length)
+      );
     }
   });
 
-  return suggestions.slice(0, 6);
+  return suggestions.slice(0, 8);
 }
 
 export function analyzeEmailWriting({ subject = "", design = null, tokens = {} } = {}) {
