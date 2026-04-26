@@ -1248,6 +1248,58 @@ textarea {
   padding: 0.9rem 1rem;
 }
 
+.editor-contact-targets {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.85rem;
+  border: 1px solid var(--stroke);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.editor-contact-targets__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.editor-contact-targets__head span {
+  font-weight: 700;
+}
+
+.editor-contact-targets__head small,
+.editor-contact-targets__empty {
+  color: var(--muted);
+}
+
+.editor-contact-targets__list {
+  display: grid;
+  gap: 0.45rem;
+  max-height: 160px;
+  overflow: auto;
+  padding-right: 0.15rem;
+}
+
+.editor-contact-target {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--stroke);
+  border-radius: 12px;
+  background: #f8fbf7;
+}
+
+.editor-contact-target span {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.editor-contact-target small {
+  color: var(--muted);
+}
+
 .editor-layout {
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr) 340px;

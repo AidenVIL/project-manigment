@@ -430,7 +430,22 @@ function renderWritingCoach(preview) {
   `;
 }
 
-export function renderTemplateEditorView({ editor, company, preview }) {
+export function renderTemplateEditorView({ editor, company, preview, mailboxConnected }) {
+  const companyContacts = Array.isArray(company?.contacts) && company.contacts.length
+    ? company.contacts
+    : company?.contactName || company?.contactRole || company?.contactEmail
+      ? [
+          {
+            id: "primary-legacy-contact",
+            name: company.contactName || "",
+            role: company.contactRole || "",
+            email: company.contactEmail || ""
+          }
+        ]
+      : [];
+  const selectedContactIds = Array.isArray(editor.selectedContactIds) ? editor.selectedContactIds : [];
+  const selectedCount = selectedContactIds.length;
+
   return `
     <main class="editor-page">
       <header class="editor-header">
@@ -477,6 +492,49 @@ export function renderTemplateEditorView({ editor, company, preview }) {
               .join("")}
           </select>
         </label>
+        <div class="editor-contact-targets">
+          <div class="editor-contact-targets__head">
+            <span>Send Contacts</span>
+            <small>${selectedCount} selected</small>
+          </div>
+          ${
+            companyContacts.length
+              ? `
+                <div class="editor-contact-targets__list">
+                  ${companyContacts
+                    .map((contact) => {
+                      const checked = selectedContactIds.includes(contact.id);
+                      const label = contact.name || contact.email || "Contact";
+                      const detail = [contact.role, contact.email].filter(Boolean).join(" | ");
+                      return `
+                        <label class="editor-contact-target">
+                          <input
+                            type="checkbox"
+                            name="editor-contact-target"
+                            value="${escapeHtml(contact.id)}"
+                            ${checked ? "checked" : ""}
+                          />
+                          <span>
+                            <strong>${escapeHtml(label)}</strong>
+                            ${detail ? `<small>${escapeHtml(detail)}</small>` : ""}
+                          </span>
+                        </label>
+                      `;
+                    })
+                    .join("")}
+                </div>
+              `
+              : `<small class="editor-contact-targets__empty">No contacts saved for this company yet.</small>`
+          }
+          <button
+            type="button"
+            class="primary-button primary-button--compact"
+            data-action="send-editor-to-selected-contacts"
+            ${companyContacts.length && mailboxConnected ? "" : "disabled"}
+          >
+            Send To Selected
+          </button>
+        </div>
       </div>
       <div class="editor-layout">
         <aside class="editor-sidebar panel">

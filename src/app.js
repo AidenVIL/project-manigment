@@ -210,6 +210,31 @@ function getEditorCompany(editor = state.editor) {
   return state.companies.find((company) => company.id === editor.companyId) || PREVIEW_COMPANY;
 }
 
+function getCompanyContacts(company = PREVIEW_COMPANY) {
+  const contacts = Array.isArray(company.contacts) ? company.contacts : [];
+  if (contacts.length) {
+    return contacts.map((contact) => ({
+      id: contact.id || crypto.randomUUID(),
+      name: contact.name || "",
+      role: contact.role || "",
+      email: contact.email || ""
+    }));
+  }
+
+  if (company.contactName || company.contactRole || company.contactEmail) {
+    return [
+      {
+        id: "primary-legacy-contact",
+        name: company.contactName || "",
+        role: company.contactRole || "",
+        email: company.contactEmail || ""
+      }
+    ];
+  }
+
+  return [];
+}
+
 function findEditorBlock(blockId, editor = state.editor) {
   if (!editor) {
     return null;
@@ -730,11 +755,23 @@ function createEditorState({
   selectedBlockId = "body",
   device = "desktop",
   createdAt = "",
-  lastFocusedTarget = null
+  lastFocusedTarget = null,
+  selectedContactIds = []
 }) {
   const companyOptions = getCompanyOptions();
   const resolvedCompanyId =
     companyOptions.find((option) => option.id === companyId)?.id || companyOptions[0]?.id || "";
+  const resolvedCompany =
+    state.companies.find((company) => company.id === resolvedCompanyId) || PREVIEW_COMPANY;
+  const availableContacts = getCompanyContacts(resolvedCompany);
+  const normalizedSelectedContactIds = (Array.isArray(selectedContactIds) ? selectedContactIds : []).filter(
+    (idValue) => availableContacts.some((contact) => contact.id === idValue)
+  );
+  const initialSelectedContactIds = normalizedSelectedContactIds.length
+    ? normalizedSelectedContactIds
+    : availableContacts[0]?.id
+      ? [availableContacts[0].id]
+      : [];
 
   return {
     open: true,
@@ -748,6 +785,7 @@ function createEditorState({
     sidebarTab,
     device,
     companyId: resolvedCompanyId,
+    selectedContactIds: initialSelectedContactIds,
     companyOptions,
     createdAt,
     lastFocusedTarget
@@ -763,6 +801,15 @@ function syncEditorCompanyOptions() {
 
   if (!state.editor.companyOptions.some((option) => option.id === state.editor.companyId)) {
     state.editor.companyId = state.editor.companyOptions[0]?.id || "";
+  }
+
+  const company = getEditorCompany(state.editor);
+  const contacts = getCompanyContacts(company);
+  state.editor.selectedContactIds = (state.editor.selectedContactIds || []).filter((contactId) =>
+    contacts.some((contact) => contact.id === contactId)
+  );
+  if (!state.editor.selectedContactIds.length && contacts[0]?.id) {
+    state.editor.selectedContactIds = [contacts[0].id];
   }
 }
 
@@ -1228,7 +1275,8 @@ function renderApp() {
     root.innerHTML = renderTemplateEditorView({
       editor: state.editor,
       company: getEditorCompany(state.editor),
-      preview
+      preview,
+      mailboxConnected: state.mailbox.connected
     });
     if (shouldRestoreEditorFocus) {
       scheduleEditorFocusRestore();
@@ -1237,6 +1285,20 @@ function renderApp() {
   }
 
   root.innerHTML = renderShell();
+}
+
+function renderAppPreserveModalScroll() {
+  const modalCard = root.querySelector(".modal-card");
+  const scrollTop = modalCard?.scrollTop || 0;
+  const scrollLeft = modalCard?.scrollLeft || 0;
+  renderApp();
+  window.requestAnimationFrame(() => {
+    const nextModalCard = root.querySelector(".modal-card");
+    if (nextModalCard) {
+      nextModalCard.scrollTop = scrollTop;
+      nextModalCard.scrollLeft = scrollLeft;
+    }
+  });
 }
 
 async function loadAppData() {
@@ -1514,6 +1576,55 @@ async function sendFollowUpEmail() {
   }
 }
 
+async function sendEditorEmailToSelectedContacts() {
+  if (!state.editor) {
+    return;
+  }
+
+  const company = getEditorCompany(state.editor);
+  const companyContacts = getCompanyContacts(company);
+  const selectedContacts = companyContacts.filter((contact) =>
+    (state.editor.selectedContactIds || []).includes(contact.id)
+  );
+  const recipientContacts = selectedContacts.filter((contact) => String(contact.email || "").trim());
+
+  if (!recipientContacts.length) {
+    showToast("Select at least one contact with an email address.");
+    return;
+  }
+
+  if (!state.mailbox.connected) {
+    showToast("Connect Gmail first in the Mailbox section.");
+    return;
+  }
+
+  let sentCount = 0;
+  for (const contact of recipientContacts) {
+    const preview = templateService.previewTemplate(
+      {
+        subject: state.editor.subjectInput,
+        design: state.editor.design
+      },
+      createCompany({
+        ...company,
+        contactName: contact.name || company.contactName || "",
+        contactRole: contact.role || company.contactRole || "",
+        contactEmail: contact.email || company.contactEmail || ""
+      })
+    );
+
+    await gmailService.sendMessage({
+      to: String(contact.email || "").trim(),
+      subject: preview.subject,
+      htmlBody: preview.html
+    });
+    sentCount += 1;
+  }
+
+  await loadMailboxMessages(false);
+  showToast(`Sent ${sentCount} email${sentCount === 1 ? "" : "s"} from editor.`);
+}
+
 function openTemplateEditor(templateId) {
   const template = state.templates.find((item) => item.id === templateId);
   if (!template) {
@@ -1570,7 +1681,8 @@ function openSavedDraft(draftId) {
     design: draft.design,
     companyId: draft.companyId || getPreferredCompanyId(),
     createdAt: draft.createdAt || "",
-    selectedBlockId: draft.selectedBlockId || "body"
+    selectedBlockId: draft.selectedBlockId || "body",
+    selectedContactIds: draft.selectedContactIds || []
   });
   renderApp();
 }
@@ -2147,6 +2259,7 @@ function buildDraftPayload() {
     design: clone(state.editor.design),
     companyId: company.id === PREVIEW_COMPANY.id ? "" : company.id,
     companyName: company.companyName || "",
+    selectedContactIds: Array.isArray(state.editor.selectedContactIds) ? state.editor.selectedContactIds : [],
     selectedBlockId: state.editor.selectedBlockId,
     createdAt: existingDraft?.createdAt || state.editor.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString()
@@ -2280,7 +2393,7 @@ root.addEventListener("click", async (event) => {
       }
 
       applyResearchCompanyCandidate(candidate);
-      renderApp();
+      renderAppPreserveModalScroll();
       showToast("Company details applied to the main form.");
       return;
     }
@@ -2290,7 +2403,7 @@ root.addEventListener("click", async (event) => {
       }
 
       applyResearchSuggestionsToDraft(state.modal.researchResult);
-      renderApp();
+      renderAppPreserveModalScroll();
       showToast("Research suggestions applied.");
       return;
     case "select-research-candidate": {
@@ -2300,7 +2413,7 @@ root.addEventListener("click", async (event) => {
       }
 
       applyResearchCandidate(candidate);
-      renderApp();
+      renderAppPreserveModalScroll();
       showToast("Contact added to this company.");
       return;
     }
@@ -2311,7 +2424,7 @@ root.addEventListener("click", async (event) => {
       }
 
       applyResearchCandidate(candidate);
-      renderApp();
+      renderAppPreserveModalScroll();
       showToast("Completed result reopened.");
       return;
     }
@@ -2344,7 +2457,7 @@ root.addEventListener("click", async (event) => {
         ...state.modal.draft,
         contacts
       });
-      renderApp();
+      renderAppPreserveModalScroll();
       showToast("Contact added.");
       return;
     }
@@ -2377,19 +2490,19 @@ root.addEventListener("click", async (event) => {
         ...state.modal.draft,
         contacts
       });
-      renderApp();
+      renderAppPreserveModalScroll();
       showToast("Email contact added.");
       return;
     }
     case "set-primary-contact": {
       setPrimaryContactById(id);
-      renderApp();
+      renderAppPreserveModalScroll();
       showToast("Primary contact updated.");
       return;
     }
     case "remove-contact": {
       removeContactById(id);
-      renderApp();
+      renderAppPreserveModalScroll();
       showToast("Contact removed.");
       return;
     }
@@ -2552,6 +2665,9 @@ root.addEventListener("click", async (event) => {
       return;
     case "copy-editor-html":
       await copyTextToClipboard(buildEditorPreview().html, "Rendered HTML copied.");
+      return;
+    case "send-editor-to-selected-contacts":
+      await sendEditorEmailToSelectedContacts();
       return;
     case "save-template-editor":
       await saveTemplateFromEditor();
@@ -2810,6 +2926,22 @@ root.addEventListener("change", async (event) => {
     state.editor.companyId = event.target.value;
     state.preferredCompanyId =
       event.target.value === PREVIEW_COMPANY.id ? state.preferredCompanyId : event.target.value;
+    const selectedCompany = getEditorCompany(state.editor);
+    const selectedCompanyContacts = getCompanyContacts(selectedCompany);
+    state.editor.selectedContactIds = selectedCompanyContacts[0]?.id ? [selectedCompanyContacts[0].id] : [];
+    renderApp();
+    return;
+  }
+
+  if (event.target.name === "editor-contact-target") {
+    const contactId = String(event.target.value || "");
+    const selected = new Set(state.editor.selectedContactIds || []);
+    if (event.target.checked) {
+      selected.add(contactId);
+    } else {
+      selected.delete(contactId);
+    }
+    state.editor.selectedContactIds = [...selected];
     renderApp();
     return;
   }
