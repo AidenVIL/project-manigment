@@ -31,6 +31,7 @@ const baseCompany = {
   id: "",
   companyName: "",
   website: "",
+  contacts: [],
   contactName: "",
   contactRole: "",
   contactEmail: "",
@@ -83,6 +84,47 @@ function normalizeDate(value) {
   return value ? String(value).slice(0, 10) : "";
 }
 
+function normalizeContact(input = {}) {
+  const name = String(input.name ?? input.contactName ?? "").trim();
+  const role = String(input.role ?? input.contactRole ?? "").trim();
+  const email = String(input.email ?? input.contactEmail ?? "").trim();
+
+  if (!name && !role && !email) {
+    return null;
+  }
+
+  return {
+    id: String(input.id || crypto.randomUUID()),
+    name,
+    role,
+    email,
+    source: String(input.source || "").trim(),
+    matchReason: String(input.matchReason || "").trim()
+  };
+}
+
+function normalizeContacts(inputContacts = []) {
+  const seen = new Set();
+  const normalized = [];
+
+  const list = Array.isArray(inputContacts) ? inputContacts : [];
+  for (const entry of list) {
+    const contact = normalizeContact(entry);
+    if (!contact) {
+      continue;
+    }
+
+    const dedupeKey = `${contact.email.toLowerCase()}|${contact.name.toLowerCase()}|${contact.role.toLowerCase()}`;
+    if (seen.has(dedupeKey)) {
+      continue;
+    }
+    seen.add(dedupeKey);
+    normalized.push(contact);
+  }
+
+  return normalized;
+}
+
 export function createCompany(input = {}) {
   const now = new Date().toISOString();
   const firstContacted = normalizeDate(input.firstContacted ?? input.first_contacted);
@@ -90,15 +132,56 @@ export function createCompany(input = {}) {
     firstContacted,
     input.nextFollowUp ?? input.next_follow_up
   );
+  const explicitContactName = String(input.contactName ?? input.contact_name ?? "").trim();
+  const explicitContactRole = String(input.contactRole ?? input.contact_role ?? "").trim();
+  const explicitContactEmail = String(input.contactEmail ?? input.contact_email ?? "").trim();
+
+  let inputContacts = input.contacts ?? input.contact_list ?? [];
+  if (typeof inputContacts === "string") {
+    try {
+      inputContacts = JSON.parse(inputContacts);
+    } catch {
+      inputContacts = [];
+    }
+  }
+
+  let contacts = normalizeContacts(inputContacts);
+  const legacyContact = normalizeContact({
+    name: explicitContactName,
+    role: explicitContactRole,
+    email: explicitContactEmail
+  });
+  if (legacyContact) {
+    const existingIndex = contacts.findIndex(
+      (entry) =>
+        legacyContact.email &&
+        entry.email &&
+        entry.email.toLowerCase() === legacyContact.email.toLowerCase()
+    );
+    if (existingIndex >= 0) {
+      contacts[existingIndex] = {
+        ...contacts[existingIndex],
+        name: legacyContact.name || contacts[existingIndex].name,
+        role: legacyContact.role || contacts[existingIndex].role
+      };
+      const [primary] = contacts.splice(existingIndex, 1);
+      contacts.unshift(primary);
+    } else {
+      contacts.unshift(legacyContact);
+    }
+  }
+
+  const primaryContact = contacts[0] || null;
 
   return {
     ...baseCompany,
     id: input.id || crypto.randomUUID(),
     companyName: input.companyName ?? input.company_name ?? "",
     website: input.website ?? input.company_website ?? "",
-    contactName: input.contactName ?? input.contact_name ?? "",
-    contactRole: input.contactRole ?? input.contact_role ?? "",
-    contactEmail: input.contactEmail ?? input.contact_email ?? "",
+    contacts,
+    contactName: explicitContactName || primaryContact?.name || "",
+    contactRole: explicitContactRole || primaryContact?.role || "",
+    contactEmail: explicitContactEmail || primaryContact?.email || "",
     sector: input.sector ?? "",
     status: input.status ?? "prospect",
     askType: input.askType ?? input.ask_type ?? "cash",
@@ -132,6 +215,7 @@ export function serializeCompanyForApi(company) {
     contact_name: normalized.contactName,
     contact_role: normalized.contactRole,
     contact_email: normalized.contactEmail,
+    contacts: normalized.contacts,
     sector: normalized.sector,
     status: normalized.status,
     ask_type: normalized.askType,

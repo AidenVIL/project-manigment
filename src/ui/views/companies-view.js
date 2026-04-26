@@ -104,6 +104,7 @@ export function renderCompaniesView({ filters, companies, totalCompanies }) {
                 <div>
                   <h3>${escapeHtml(company.companyName)}</h3>
                   <p>${escapeHtml(company.contactName || "Primary contact not set")}</p>
+                  <p>${escapeHtml(`${(company.contacts || []).length} saved contact${(company.contacts || []).length === 1 ? "" : "s"}`)}</p>
                   ${
                     company.website
                       ? `<p><a href="${escapeHtml(company.website)}" target="_blank" rel="noreferrer">${escapeHtml(

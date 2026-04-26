@@ -107,6 +107,39 @@ function renderResearchCandidateList(candidates = [], action, buttonLabel = "Sel
   `;
 }
 
+function renderSavedContactsList(contacts = []) {
+  if (!contacts.length) {
+    return `<p class="research-empty">No saved contacts yet. Add from Found Emails on the right.</p>`;
+  }
+
+  return `
+    <div class="finder-list">
+      ${contacts
+        .map(
+          (contact, index) => `
+            <article class="finder-item finder-item--stacked ${index === 0 ? "finder-item--active" : ""}">
+              <div class="finder-item__meta">
+                <strong>${escapeHtml(contact.name || contact.email || "Contact")}</strong>
+                <span>${escapeHtml(contact.role || "No role set")}</span>
+                <small>${escapeHtml(contact.email || "No email")}</small>
+                ${index === 0 ? `<small class="finder-item__badge">Primary</small>` : ""}
+              </div>
+              <div class="finder-actions finder-actions--inline">
+                ${
+                  index !== 0
+                    ? `<button type="button" class="ghost-button primary-button--compact" data-action="set-primary-contact" data-id="${escapeHtml(contact.id)}">Set Primary</button>`
+                    : ""
+                }
+                <button type="button" class="ghost-button primary-button--compact" data-action="remove-contact" data-id="${escapeHtml(contact.id)}">Remove</button>
+              </div>
+            </article>
+          `
+        )
+        .join("")}
+    </div>
+  `;
+}
+
 function renderCompanyCandidateList(candidates = [], selectedId = "", action = "preview-company-candidate", buttonLabel = "View") {
   if (!candidates.length) {
     return `<p class="research-empty">No likely company matches yet. Try another name or add a more specific context.</p>`;
@@ -272,6 +305,13 @@ export function renderCompanyModal(modalState, company) {
                   />
                 </label>
               </div>
+            </section>
+            <section class="finder-summary finder-summary--selected field--span-2">
+              <div class="finder-section__head">
+                <strong>Saved Contacts For This Company</strong>
+                <span>Add as many as you want from the finder list on the right.</span>
+              </div>
+              ${renderSavedContactsList(company.contacts || [])}
             </section>
             <label class="field">
               <span>Contact Name</span>

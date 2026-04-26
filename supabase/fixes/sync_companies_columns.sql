@@ -1,5 +1,6 @@
 alter table if exists public.companies
 add column if not exists company_website text,
+add column if not exists contacts jsonb default '[]'::jsonb,
 add column if not exists contact_name text,
 add column if not exists contact_role text,
 add column if not exists contact_email text,

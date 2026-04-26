@@ -19,6 +19,7 @@ create table if not exists public.companies (
   id uuid primary key default gen_random_uuid(),
   company_name text not null,
   company_website text,
+  contacts jsonb not null default '[]'::jsonb,
   contact_name text,
   contact_role text,
   contact_email text,
@@ -44,6 +45,7 @@ create table if not exists public.companies (
 
 alter table if exists public.companies
 add column if not exists company_website text,
+add column if not exists contacts jsonb default '[]'::jsonb,
 add column if not exists contact_name text,
 add column if not exists contact_role text,
 add column if not exists contact_email text,

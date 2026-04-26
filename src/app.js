@@ -241,6 +241,10 @@ function setWorkspaceView(viewId) {
 function getFilteredCompanies() {
   const searchQuery = state.filters.search.trim().toLowerCase();
   const filtered = state.companies.filter((company) => {
+    const contactsHaystack = (company.contacts || [])
+      .map((contact) => `${contact.name || ""} ${contact.role || ""} ${contact.email || ""}`)
+      .join(" ")
+      .toLowerCase();
     const matchesStatus = state.filters.status === "all" || company.status === state.filters.status;
     const matchesResponseStatus =
       state.filters.responseStatus === "all" || company.responseStatus === state.filters.responseStatus;
@@ -250,7 +254,8 @@ function getFilteredCompanies() {
       company.companyName.toLowerCase().includes(searchQuery) ||
       company.contactName.toLowerCase().includes(searchQuery) ||
       company.contactEmail.toLowerCase().includes(searchQuery) ||
-      company.sector.toLowerCase().includes(searchQuery);
+      company.sector.toLowerCase().includes(searchQuery) ||
+      contactsHaystack.includes(searchQuery);
 
     return matchesStatus && matchesResponseStatus && matchesAskType && matchesSearch;
   });
@@ -366,6 +371,17 @@ function applyResearchSuggestionsToDraft(result) {
 
   const topContact = result.contacts?.[0] || null;
   const topEmail = result.emails?.[0] || null;
+  const seededContacts = [];
+  if (topContact || topEmail) {
+    seededContacts.push({
+      id: crypto.randomUUID(),
+      name: topContact?.name || "",
+      role: topContact?.role || "",
+      email: topEmail?.email || "",
+      source: topEmail?.source || topContact?.source || "",
+      matchReason: topEmail?.matchReason || ""
+    });
+  }
   const nextNotes = [state.modal.draft.notes || ""];
 
   if (result.signals?.length) {
@@ -380,6 +396,7 @@ function applyResearchSuggestionsToDraft(result) {
     ...state.modal.draft,
     companyName: state.modal.draft.companyName || result.companyName || "",
     website: state.modal.draft.website || result.website || "",
+    contacts: state.modal.draft.contacts?.length ? state.modal.draft.contacts : seededContacts,
     contactName: state.modal.draft.contactName || topContact?.name || "",
     contactRole: state.modal.draft.contactRole || topContact?.role || "",
     contactEmail: state.modal.draft.contactEmail || topEmail?.email || "",
@@ -451,12 +468,49 @@ function applyResearchCandidate(candidate) {
   if (!candidate) {
     return;
   }
+  const existingContacts = Array.isArray(state.modal.draft.contacts)
+    ? [...state.modal.draft.contacts]
+    : [];
+  const normalizedEmail = String(candidate.email || "").trim().toLowerCase();
+  const normalizedName = String(candidate.contactName || "").trim().toLowerCase();
+  const existingIndex = existingContacts.findIndex((entry) => {
+    const entryEmail = String(entry.email || "").trim().toLowerCase();
+    const entryName = String(entry.name || "").trim().toLowerCase();
+    if (normalizedEmail && entryEmail) {
+      return normalizedEmail === entryEmail;
+    }
+    return normalizedName && entryName && normalizedName === entryName;
+  });
+
+  const nextContact = {
+    id: existingContacts[existingIndex]?.id || crypto.randomUUID(),
+    name: candidate.contactName || "",
+    role: candidate.contactRole || "",
+    email: candidate.email || "",
+    source: candidate.source || "",
+    matchReason: candidate.matchReason || ""
+  };
+
+  if (existingIndex >= 0) {
+    existingContacts[existingIndex] = {
+      ...existingContacts[existingIndex],
+      ...nextContact,
+      name: nextContact.name || existingContacts[existingIndex].name || "",
+      role: nextContact.role || existingContacts[existingIndex].role || "",
+      email: nextContact.email || existingContacts[existingIndex].email || ""
+    };
+  } else {
+    existingContacts.push(nextContact);
+  }
+
+  const primaryContact = existingContacts[0] || nextContact;
 
   state.modal.draft = createCompany({
     ...state.modal.draft,
-    contactName: candidate.contactName || state.modal.draft.contactName,
-    contactRole: candidate.contactRole || state.modal.draft.contactRole,
-    contactEmail: candidate.email || state.modal.draft.contactEmail,
+    contacts: existingContacts,
+    contactName: state.modal.draft.contactName || primaryContact.name || "",
+    contactRole: state.modal.draft.contactRole || primaryContact.role || "",
+    contactEmail: state.modal.draft.contactEmail || primaryContact.email || "",
     website: state.modal.draft.website || state.modal.researchResult?.website || "",
     companyName: state.modal.draft.companyName || state.modal.researchResult?.companyName || "",
     sector: state.modal.draft.sector || state.modal.researchResult?.sector || "",
@@ -471,6 +525,37 @@ function applyResearchCandidate(candidate) {
     ...state.modal.completedResearchEntries.filter((entry) => entry.id !== candidate.id)
   ];
   state.modal.completedResearchEntries = nextCompleted;
+}
+
+function setPrimaryContactById(contactId = "") {
+  const contacts = Array.isArray(state.modal.draft.contacts) ? [...state.modal.draft.contacts] : [];
+  const index = contacts.findIndex((entry) => entry.id === contactId);
+  if (index < 0) {
+    return;
+  }
+
+  const [primary] = contacts.splice(index, 1);
+  contacts.unshift(primary);
+  state.modal.draft = createCompany({
+    ...state.modal.draft,
+    contacts,
+    contactName: primary.name || "",
+    contactRole: primary.role || "",
+    contactEmail: primary.email || ""
+  });
+}
+
+function removeContactById(contactId = "") {
+  const contacts = Array.isArray(state.modal.draft.contacts) ? [...state.modal.draft.contacts] : [];
+  const nextContacts = contacts.filter((entry) => entry.id !== contactId);
+  const nextPrimary = nextContacts[0] || { name: "", role: "", email: "" };
+  state.modal.draft = createCompany({
+    ...state.modal.draft,
+    contacts: nextContacts,
+    contactName: nextPrimary.name || "",
+    contactRole: nextPrimary.role || "",
+    contactEmail: nextPrimary.email || ""
+  });
 }
 
 function getSelectedResearchCompanyCandidate() {
@@ -1888,6 +1973,7 @@ async function handleCompanySubmit(form) {
 
   payload.askValue = Number(payload.askValue || 0);
   payload.contributionValue = Number(payload.contributionValue || 0);
+  payload.contacts = Array.isArray(state.modal.draft.contacts) ? state.modal.draft.contacts : [];
   payload.lastUpdated = new Date().toISOString();
   state.modal.draft = {
     ...state.modal.draft,
@@ -2215,7 +2301,7 @@ root.addEventListener("click", async (event) => {
 
       applyResearchCandidate(candidate);
       renderApp();
-      showToast("Research result applied.");
+      showToast("Contact added to this company.");
       return;
     }
     case "reopen-completed-research": {
@@ -2235,13 +2321,31 @@ root.addEventListener("click", async (event) => {
         return;
       }
 
+      const contacts = Array.isArray(state.modal.draft.contacts) ? [...state.modal.draft.contacts] : [];
+      const normalizedName = String(contact.name || "").trim().toLowerCase();
+      const existingIndex = contacts.findIndex(
+        (entry) => String(entry.name || "").trim().toLowerCase() === normalizedName
+      );
+      const nextContact = {
+        id: contacts[existingIndex]?.id || crypto.randomUUID(),
+        name: contact.name || "",
+        role: contact.role || "",
+        email: contacts[existingIndex]?.email || "",
+        source: contact.source || "",
+        matchReason: contact.matchReason || ""
+      };
+      if (existingIndex >= 0) {
+        contacts[existingIndex] = { ...contacts[existingIndex], ...nextContact };
+      } else {
+        contacts.push(nextContact);
+      }
+
       state.modal.draft = createCompany({
         ...state.modal.draft,
-        contactName: contact.name || state.modal.draft.contactName,
-        contactRole: contact.role || state.modal.draft.contactRole
+        contacts
       });
       renderApp();
-      showToast("Contact details applied.");
+      showToast("Contact added.");
       return;
     }
     case "apply-research-email": {
@@ -2250,12 +2354,43 @@ root.addEventListener("click", async (event) => {
         return;
       }
 
+      const contacts = Array.isArray(state.modal.draft.contacts) ? [...state.modal.draft.contacts] : [];
+      const normalizedEmail = String(email.email || "").trim().toLowerCase();
+      const existingIndex = contacts.findIndex(
+        (entry) => String(entry.email || "").trim().toLowerCase() === normalizedEmail
+      );
+      const nextContact = {
+        id: contacts[existingIndex]?.id || crypto.randomUUID(),
+        name: contacts[existingIndex]?.name || email.contactName || "",
+        role: contacts[existingIndex]?.role || email.contactRole || "",
+        email: email.email || "",
+        source: email.source || "",
+        matchReason: email.matchReason || ""
+      };
+      if (existingIndex >= 0) {
+        contacts[existingIndex] = { ...contacts[existingIndex], ...nextContact };
+      } else {
+        contacts.push(nextContact);
+      }
+
       state.modal.draft = createCompany({
         ...state.modal.draft,
-        contactEmail: email.email || state.modal.draft.contactEmail
+        contacts
       });
       renderApp();
-      showToast("Email applied.");
+      showToast("Email contact added.");
+      return;
+    }
+    case "set-primary-contact": {
+      setPrimaryContactById(id);
+      renderApp();
+      showToast("Primary contact updated.");
+      return;
+    }
+    case "remove-contact": {
+      removeContactById(id);
+      renderApp();
+      showToast("Contact removed.");
       return;
     }
     case "save-company": {
@@ -2531,6 +2666,25 @@ root.addEventListener("input", (event) => {
     }
 
     if (name) {
+      if (name === "contactName" || name === "contactRole" || name === "contactEmail") {
+        const contacts = Array.isArray(state.modal.draft.contacts) ? [...state.modal.draft.contacts] : [];
+        const primary = {
+          id: contacts[0]?.id || crypto.randomUUID(),
+          name: name === "contactName" ? value : contacts[0]?.name || state.modal.draft.contactName || "",
+          role: name === "contactRole" ? value : contacts[0]?.role || state.modal.draft.contactRole || "",
+          email: name === "contactEmail" ? value : contacts[0]?.email || state.modal.draft.contactEmail || "",
+          source: contacts[0]?.source || "",
+          matchReason: contacts[0]?.matchReason || ""
+        };
+        contacts[0] = primary;
+        state.modal.draft = {
+          ...state.modal.draft,
+          contacts,
+          [name]: value
+        };
+        return;
+      }
+
       state.modal.draft = {
         ...state.modal.draft,
         [name]: type === "number" ? Number(value || 0) : value
