@@ -497,6 +497,28 @@ function extractEmails(text = "", pageUrl = "") {
         return false;
       }
 
+      if (localPart.length < 2) {
+        return false;
+      }
+
+      if (
+        /\.(local|internal|invalid|example|placeholder)$/i.test(domain) ||
+        /(?:^|\.)layer\.push$/i.test(domain)
+      ) {
+        return false;
+      }
+
+      if (
+        /(fp[-_.]?integer|hero|width|height|sprite|pixel|placeholder|noreply[-_.]?asset|cdn)/i.test(localPart) ||
+        /(social-media-hero|sprite|placeholder|cdn|assets?|fonts?)/i.test(domain)
+      ) {
+        return false;
+      }
+
+      if (/^(?:[a-z]\d*|tmp|test|debug)$/i.test(localPart)) {
+        return false;
+      }
+
       if (isLikelyPlaceholderEmail(email)) {
         return false;
       }
@@ -1205,15 +1227,22 @@ function candidateLooksRelevant(candidate, { companyName = "", context = "", com
   if (companySearchMode === "industry") {
     const industryMatches = countMatchedTokens(companyTokens, haystack);
     const contextMatches = countMatchedTokens(contextTokens, haystack);
+    const looksLikeArticle =
+      looksLikeArticlePath(candidate.website || "") ||
+      /(blog|article|newsroom|insights?|press release|opinion|how to|guide)/i.test(haystack);
     const hasOfficialStyleSignal =
-      /official|contact|about|team|company|group|services|solutions/.test(haystack) ||
-      !looksLikeArticlePath(candidate.website || "");
+      /official|contact|about|team|company|group|services|solutions|ltd|limited|co\.uk|uk\b/.test(haystack) ||
+      !looksLikeArticle;
 
     if (!companyTokens.length && !contextTokens.length) {
       return true;
     }
 
-    return (industryMatches > 0 || contextMatches > 0) && hasOfficialStyleSignal;
+    if (industryMatches > 0 || contextMatches > 0) {
+      return true;
+    }
+
+    return hasOfficialStyleSignal && !looksLikeArticle;
   }
 
   const companyMatches = countMatchedTokens(companyTokens, haystack);
@@ -1263,6 +1292,9 @@ function scoreCompanyCandidate(candidate, { companyName = "", context = "", comp
     const industryTokens = tokenizeSearchTerms(companyName);
     const industryMatches = countMatchedTokens(industryTokens, haystack);
     score += industryMatches * 3;
+    if (/ltd|limited|group|official|contact|about us|services|solutions|co\.uk|uk\b/.test(haystack)) {
+      score += 2;
+    }
   }
 
   const contextScore = contextTerms.reduce(
@@ -1282,8 +1314,8 @@ function scoreCompanyCandidate(candidate, { companyName = "", context = "", comp
     const depth = path.split("/").filter(Boolean).length;
     if (path === "/" || depth === 0) {
       score += 6;
-    } else if (depth >= 1) {
-      score -= 1;
+    } else if (depth === 1) {
+      score += 1;
     }
     if (depth >= 2) {
       score -= 2;
@@ -2293,8 +2325,34 @@ async function handleRequest(request, response) {
   if (request.method === "POST" && url.pathname === "/api/external-sponsor-search") {
     try {
       const body = await readJsonBody(request);
-      const industry = String(body.industry || "").trim();
+      let industry = String(body.industry || "").trim();
       const context = String(body.context || "").trim();
+      const website = String(body.website || "").trim();
+      const companyName = String(body.companyName || "").trim();
+
+      if (!industry && website) {
+        try {
+          const websiteDraft = await researchCompanyWebsite({
+            companyName,
+            website,
+            searchMode: "website",
+            context,
+            companySearchMode: "company"
+          });
+          industry = String(websiteDraft.sector || "").trim() || String(companyName || "").trim();
+        } catch {
+          // Fall back to company name or domain-derived label below.
+        }
+      }
+
+      if (!industry && companyName) {
+        industry = companyName;
+      }
+
+      if (!industry && website) {
+        industry = inferCompanyNameFromWebsite(website);
+      }
+
       const companyCandidates = await discoverExternalSponsorCandidates({
         industry,
         context
@@ -2302,7 +2360,7 @@ async function handleRequest(request, response) {
 
       sendJson(response, 200, {
         companyName: industry,
-        website: "",
+        website: website || "",
         searchMode: "company",
         context,
         companySearchMode: "industry",

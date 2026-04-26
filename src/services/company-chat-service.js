@@ -20,12 +20,16 @@ function findCompanyByName(companies = [], question = "") {
 }
 
 function buildCompanyMiniSummary(company) {
+  const shortResearch = String(company.researchSummary || "").trim();
+  const shortAngle = String(company.personalizationNotes || "").trim();
   const followUpDays = daysUntil(company.nextFollowUp);
   const followUpLabel = formatRelativeCountdown(followUpDays);
   return [
     `${company.companyName}: status ${company.status || "prospect"}, response ${company.responseStatus || "waiting"}.`,
     `Ask ${formatCurrency(company.askValue || 0)}, confirmed ${formatCurrency(company.contributionValue || 0)}.`,
-    `Next follow-up ${formatDate(company.nextFollowUp)} (${followUpLabel}).`
+    `Next follow-up ${formatDate(company.nextFollowUp)} (${followUpLabel}).`,
+    shortResearch ? `Research: ${shortResearch.slice(0, 240)}${shortResearch.length > 240 ? "..." : ""}` : "",
+    shortAngle ? `Email angle: ${shortAngle.slice(0, 180)}${shortAngle.length > 180 ? "..." : ""}` : ""
   ].join(" ");
 }
 
@@ -65,26 +69,30 @@ export function askCompanyAssistant({ question = "", companies = [] } = {}) {
 
   if (!q) {
     return {
-      answer: "Ask me about your sponsor pipeline, follow-ups, top-value companies, or a specific company by name."
+      answer: "Ask me about your sponsor pipeline, follow-ups, top-value companies, or a specific company by name.",
+      needsLookup: false
     };
   }
 
   const directCompany = findCompanyByName(companies, q);
   if (directCompany) {
     return {
-      answer: buildCompanyMiniSummary(directCompany)
+      answer: buildCompanyMiniSummary(directCompany),
+      needsLookup: false
     };
   }
 
   if (q.includes("how many") && (q.includes("company") || q.includes("sponsor"))) {
     return {
-      answer: `You currently have ${total} companies tracked. ${noEmailSent} have no email sent yet, and ${confirmed} are confirmed.`
+      answer: `You currently have ${total} companies tracked. ${noEmailSent} have no email sent yet, and ${confirmed} are confirmed.`,
+      needsLookup: false
     };
   }
 
   if (q.includes("no email") || q.includes("not contacted") || q.includes("uncontacted")) {
     return {
-      answer: `${noEmailSent} companies currently show no first-contact date (no outreach email sent yet).`
+      answer: `${noEmailSent} companies currently show no first-contact date (no outreach email sent yet).`,
+      needsLookup: false
     };
   }
 
@@ -93,7 +101,8 @@ export function askCompanyAssistant({ question = "", companies = [] } = {}) {
     return {
       answer: top
         ? `Highest ask is ${top.companyName} at ${formatCurrency(top.askValue || 0)}.`
-        : "I could not find a highest ask because there are no companies yet."
+        : "I could not find a highest ask because there are no companies yet.",
+      needsLookup: false
     };
   }
 
@@ -102,7 +111,8 @@ export function askCompanyAssistant({ question = "", companies = [] } = {}) {
     return {
       answer: top
         ? `Highest confirmed contribution is ${top.companyName} at ${formatCurrency(top.contributionValue || 0)}.`
-        : "No confirmed contributions found yet."
+        : "No confirmed contributions found yet.",
+      needsLookup: false
     };
   }
 
@@ -110,7 +120,8 @@ export function askCompanyAssistant({ question = "", companies = [] } = {}) {
     const due = companiesDueSoon(companies, 7).slice(0, 5);
     if (!due.length) {
       return {
-        answer: "No follow-ups are due in the next 7 days."
+        answer: "No follow-ups are due in the next 7 days.",
+        needsLookup: false
       };
     }
 
@@ -118,19 +129,22 @@ export function askCompanyAssistant({ question = "", companies = [] } = {}) {
       .map((company) => `${company.companyName} (${formatDate(company.nextFollowUp)})`)
       .join(", ");
     return {
-      answer: `Follow-ups due within 7 days: ${list}.`
+      answer: `Follow-ups due within 7 days: ${list}.`,
+      needsLookup: false
     };
   }
 
   if (q.includes("help") || q.includes("what can you do")) {
     return {
       answer:
-        "I can summarise a specific company, count outreach states, list follow-ups due soon, and highlight top ask or top confirmed companies."
+        "I can summarise a specific company, use saved research and personalisation notes for email writing, count outreach states, list follow-ups due soon, and highlight top ask or top confirmed companies.",
+      needsLookup: false
     };
   }
 
   return {
     answer:
-      "I couldn't match that exactly yet. Try asking: 'how many uncontacted', 'top ask', 'follow-ups due soon', or include a company name."
+      "I couldn't match that exactly yet. Try asking: 'how many uncontacted', 'top ask', 'follow-ups due soon', or include a company name.",
+    needsLookup: true
   };
 }

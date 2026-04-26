@@ -511,6 +511,31 @@ function applyResearchCompanyCandidate(candidate) {
   state.modal.appliedCompanyCandidateId = candidate.id;
 }
 
+function extractCompanyQueryForAssistant(question = "") {
+  const text = String(question || "").trim();
+  if (!text) {
+    return "";
+  }
+
+  const directPatterns = [
+    /(?:about|research|summari[sz]e|summary on|info on)\s+([a-z0-9&.,' -]{3,})$/i,
+    /(?:company|brand)\s+([a-z0-9&.,' -]{3,})$/i
+  ];
+
+  for (const pattern of directPatterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) {
+      return String(match[1]).trim();
+    }
+  }
+
+  const cleaned = text
+    .replace(/\b(?:tell me|about|research|summarise|summarize|company|brand|please|for)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned.length >= 3 ? cleaned : "";
+}
+
 async function handleAssistantQuestion(question = "") {
   const cleanQuestion = String(question || "").trim();
   if (!cleanQuestion) {
@@ -530,10 +555,38 @@ async function handleAssistantQuestion(question = "") {
       question: cleanQuestion,
       companies: state.companies
     });
+    let finalAnswer = response.answer || "I couldn't produce a useful answer yet.";
+
+    if (response.needsLookup) {
+      const companyQuery = extractCompanyQueryForAssistant(cleanQuestion);
+      if (companyQuery) {
+        try {
+          const lookup = await companyResearchService.researchCompany({
+            companyName: companyQuery,
+            context: "sponsor contact and company summary",
+            searchMode: "company",
+            companySearchMode: "company"
+          });
+
+          const top = lookup.companyCandidates?.[0] || null;
+          if (top) {
+            finalAnswer = [
+              `I found a likely match: ${top.companyName || "Company"}${top.website ? ` (${top.website})` : ""}.`,
+              top.summaryLine || top.snippet || "",
+              top.sponsorSignalsLine ? `Sponsor signals: ${top.sponsorSignalsLine}` : ""
+            ]
+              .filter(Boolean)
+              .join(" ");
+          }
+        } catch {
+          // Keep base assistant response if live lookup fails.
+        }
+      }
+    }
 
     state.assistant.messages.push({
       role: "assistant",
-      text: response.answer || "I couldn’t produce a useful answer yet."
+      text: finalAnswer
     });
   } catch (error) {
     state.assistant.messages.push({
@@ -1923,11 +1976,13 @@ async function runCompanyResearch() {
 }
 
 async function runExternalSponsorSearch() {
-  const industry = String(state.modal.finderCompanyName || "").trim();
+  const industry = String(state.modal.finderCompanyName || state.modal.draft.sector || "").trim();
   const context = String(state.modal.finderContext || "").trim();
+  const website = String(state.modal.finderWebsite || state.modal.draft.website || "").trim();
+  const companyName = String(state.modal.draft.companyName || state.modal.finderCompanyName || "").trim();
 
-  if (!industry) {
-    showToast("Add an industry first for external sponsor search.");
+  if (!industry && !website && !companyName) {
+    showToast("Add an industry, company name, or website first for external sponsor search.");
     return;
   }
 
@@ -1938,7 +1993,9 @@ async function runExternalSponsorSearch() {
   try {
     const result = await companyResearchService.externalSponsorSearch({
       industry,
-      context
+      context,
+      website,
+      companyName
     });
     state.modal.researchLoading = false;
     state.modal.researchMode = "company";
