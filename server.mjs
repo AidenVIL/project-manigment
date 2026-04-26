@@ -565,6 +565,14 @@ function titleCaseFromSlug(value = "") {
     .join(" ");
 }
 
+function inferCompanyNameFromWebsite(website = "") {
+  try {
+    return titleCaseFromSlug(new URL(website).hostname.replace(/^www\./i, "").split(".")[0]);
+  } catch {
+    return "";
+  }
+}
+
 function inferCompanyNameFromSearchResult(title = "", website = "", query = "") {
   const titleSegments = normalizeWhitespace(title)
     .split(/[|\-–—]/)
@@ -580,11 +588,7 @@ function inferCompanyNameFromSearchResult(title = "", website = "", query = "") 
     return titleSegments[titleSegments.length - 1];
   }
 
-  try {
-    return titleCaseFromSlug(new URL(website).hostname.replace(/^www\./i, "").split(".")[0]);
-  } catch {
-    return "";
-  }
+  return inferCompanyNameFromWebsite(website);
 }
 
 function guessNameFromEmail(email = "") {
@@ -1035,6 +1039,7 @@ function scoreCompanyCandidate(candidate, { companyName = "", context = "", comp
 
   try {
     const url = new URL(candidate.website || "");
+    const hostname = url.hostname.toLowerCase();
     const path = url.pathname || "/";
     const depth = path.split("/").filter(Boolean).length;
     if (path === "/" || depth === 0) {
@@ -1049,11 +1054,178 @@ function scoreCompanyCandidate(candidate, { companyName = "", context = "", comp
     if (/(personal|products?|services?|careers?|jobs|blog|news|docs|support|help|resources)/i.test(path)) {
       score -= 4;
     }
+
+    if (/\.(pdf|docx?|xlsx?)$/i.test(path)) {
+      score -= 8;
+    }
+
+    if (/^(api|app|login|portal)\./i.test(hostname) || /(login|signin|portal|account|card)/i.test(path)) {
+      score -= 6;
+    }
   } catch {
     // Ignore malformed URLs when scoring.
   }
 
   return score;
+}
+
+function truncateOneLine(text = "", maxLength = 150) {
+  const normalized = normalizeWhitespace(text).replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return "";
+  }
+
+  return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 1).trim()}…` : normalized;
+}
+
+function getSponsorFitLabel(score = 0) {
+  if (score >= 28) {
+    return "High sponsor fit";
+  }
+
+  if (score >= 18) {
+    return "Good sponsor fit";
+  }
+
+  return "Possible sponsor fit";
+}
+
+function buildCompanyCandidateSummary(candidate, { combinedText = "", description = "" } = {}) {
+  const preferred =
+    truncateOneLine(description, 150) ||
+    truncateOneLine(candidate.snippet || "", 150) ||
+    truncateOneLine(candidate.title || "", 150);
+
+  if (preferred) {
+    return preferred;
+  }
+
+  const inferredSector = inferSector(combinedText);
+  if (inferredSector) {
+    return `Looks related to ${inferredSector.toLowerCase()} from the public site copy.`;
+  }
+
+  return "Public website found, but only limited company detail was visible in the first pass.";
+}
+
+async function enrichCompanyCandidateForSponsorship(candidate) {
+  const baseScore = Number(candidate.score || 0);
+  let score = baseScore;
+  let summaryLine = truncateOneLine(candidate.snippet || candidate.title || candidate.companyName || "", 150);
+  let sponsorSignals = [];
+  let sponsorEmail = "";
+
+  try {
+    const homePage = await fetchResearchPage(candidate.website || "");
+    const scoutLinks = chooseResearchLinks(homePage).slice(0, 2);
+    const extraPages = [];
+
+    for (const link of scoutLinks) {
+      try {
+        const page = await fetchResearchPage(link.url);
+        extraPages.push({
+          ...page,
+          label: link.label || page.title || new URL(page.url).pathname
+        });
+      } catch {
+        // Ignore individual scout page misses and keep whatever public data we already have.
+      }
+    }
+
+    const pages = [homePage, ...extraPages];
+    const combinedText = pages
+      .map((page) => `${page.title}\n${page.description}\n${textSnippet(page.text, 900)}`)
+      .join("\n\n");
+    const combinedLower = combinedText.toLowerCase();
+    const labelHaystack = pages
+      .map((page) => `${page.label || ""} ${page.title || ""} ${page.url || ""}`.toLowerCase())
+      .join(" ");
+    const emails = dedupeBy(
+      pages.flatMap((page) => extractEmails(`${page.html}\n${page.text}`, page.url)),
+      (entry) => entry.email
+    );
+    const likelySponsorEmail =
+      emails.find((entry) =>
+        /^(sponsor|sponsorship|partner|partnership|community|marketing|press|hello|info|contact)/i.test(
+          String(entry.email || "").split("@")[0] || ""
+        )
+      ) || null;
+
+    if (emails.length) {
+      score += Math.min(6, emails.length * 2);
+      sponsorSignals.push(`${emails.length} public email${emails.length === 1 ? "" : "s"} visible`);
+      sponsorEmail = likelySponsorEmail?.email || emails[0]?.email || "";
+    }
+
+    if (likelySponsorEmail) {
+      score += 8;
+      sponsorSignals.push(`outreach-style email found: ${likelySponsorEmail.email}`);
+    }
+
+    if (
+      /sponsor|sponsorship|partner with|partnership|community partners|support us|corporate support/i.test(
+        combinedLower
+      ) ||
+      /sponsor|sponsorship|partnership|partners/.test(labelHaystack)
+    ) {
+      score += 8;
+      sponsorSignals.push("partnership or sponsorship section found");
+    }
+
+    if (
+      /contact us|get in touch|speak to our team|drop us a line/i.test(combinedLower) ||
+      /\/contact\b/.test(labelHaystack)
+    ) {
+      score += 4;
+      sponsorSignals.push("clear public contact route");
+    }
+
+    if (/stem|education|schools|students|community|youth|charity|outreach|sustainability/i.test(combinedLower)) {
+      score += 3;
+      sponsorSignals.push("community or education activity mentioned");
+    }
+
+    summaryLine = buildCompanyCandidateSummary(candidate, {
+      combinedText,
+      description: homePage.description || ""
+    });
+  } catch (error) {
+    if (error?.status === 401 || error?.status === 403 || error?.status === 429) {
+      score -= 2;
+      sponsorSignals.push("site limited public scanning");
+    }
+  }
+
+  return {
+    ...candidate,
+    score,
+    summaryLine,
+    sponsorSignals: sponsorSignals.slice(0, 3),
+    sponsorSignalsLine: truncateOneLine(sponsorSignals.slice(0, 2).join(" | "), 150),
+    sponsorEmail,
+    sponsorFitLabel: getSponsorFitLabel(score)
+  };
+}
+
+async function rankCompanyCandidatesForIndustry(candidates = []) {
+  const enriched = await Promise.all(
+    candidates.map(async (candidate) => {
+      try {
+        return await enrichCompanyCandidateForSponsorship(candidate);
+      } catch {
+        return {
+          ...candidate,
+          summaryLine: truncateOneLine(candidate.snippet || candidate.title || candidate.companyName || "", 150),
+          sponsorSignals: [],
+          sponsorSignalsLine: "",
+          sponsorEmail: "",
+          sponsorFitLabel: getSponsorFitLabel(candidate.score || 0)
+        };
+      }
+    })
+  );
+
+  return enriched.sort((left, right) => right.score - left.score);
 }
 
 async function discoverCompanyCandidatesFromSearch({
@@ -1090,7 +1262,7 @@ async function discoverCompanyCandidatesFromSearch({
     }
   }
 
-  const candidates = dedupeBy(
+  let candidates = dedupeBy(
     collectedResults
       .map((result) => {
       const inferredName = inferCompanyNameFromSearchResult(result.title, result.website, companyName);
@@ -1119,6 +1291,10 @@ async function discoverCompanyCandidatesFromSearch({
     throw new Error("Could not find likely company websites from that search. Try a more specific company name or context.");
   }
 
+  if (companySearchMode === "industry") {
+    candidates = await rankCompanyCandidatesForIndustry(candidates);
+  }
+
   return candidates;
 }
 
@@ -1140,8 +1316,11 @@ function chooseResearchLinks(homePage) {
     "team",
     "people",
     "leadership",
+    "sponsor",
+    "sponsorship",
     "partners",
     "partnership",
+    "support",
     "community",
     "sustainability",
     "careers",
@@ -1232,8 +1411,7 @@ function buildBlockedResearchResult({
   warning = ""
 } = {}) {
   const resolvedCompanyName =
-    String(companyName || "").trim() ||
-    titleCaseFromSlug(new URL(website).hostname.replace(/^www\./i, "").split(".")[0]);
+    String(companyName || "").trim() || inferCompanyNameFromWebsite(website) || "Company";
 
   return {
     companyName: resolvedCompanyName,
@@ -1338,7 +1516,9 @@ async function researchCompanyWebsite({
       sector: "",
       recommendedAskType: "",
       summary: companyCandidates.length
-        ? `Found ${companyCandidates.length} likely company matches. Pick one to scan its public pages for named contacts and emails.`
+        ? companySearchMode === "industry"
+          ? `Found ${companyCandidates.length} likely company matches, ranked by sponsorship-style public signals like contact routes, partnership pages, and visible emails.`
+          : `Found ${companyCandidates.length} likely company matches. Pick one to scan its public pages for named contacts and emails.`
         : "No likely company matches were found.",
       personalization: "",
       fieldSuggestions: []
@@ -1374,7 +1554,8 @@ async function researchCompanyWebsite({
   const resolvedCompanyName =
     String(companyName || "").trim() ||
     normalizeWhitespace(pages[0]?.title?.split(/[|\-–—]/)[0]) ||
-    titleCaseFromSlug(new URL(normalizedWebsite).hostname.replace(/^www\./i, "").split(".")[0]);
+    inferCompanyNameFromWebsite(normalizedWebsite) ||
+    "Company";
   const contacts = dedupeBy(
     pages.flatMap((page) => extractContactCandidates(page.text, page.url)),
     (contact) => `${contact.name}|${contact.role}`
@@ -1791,6 +1972,13 @@ async function handleRequest(request, response) {
 
 const server = createServer((request, response) => {
   handleRequest(request, response).catch((error) => {
+    if (String(request.url || "").startsWith("/api/")) {
+      sendJson(response, 500, {
+        error: "The company finder hit an unexpected server error. Please try again."
+      });
+      return;
+    }
+
     sendText(response, 500, `Server error: ${error.message}`);
   });
 });

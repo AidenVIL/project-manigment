@@ -1,3 +1,22 @@
+function normalizeApiErrorMessage(response, payload) {
+  const fallbackMessage =
+    response.status >= 500
+      ? "The company finder is temporarily unavailable. Please try again in a minute."
+      : "Company research failed.";
+  const rawError = typeof payload?.error === "string" ? payload.error.trim() : "";
+  const looksLikeHtml = /<(?:!doctype|html|head|body)\b/i.test(rawError);
+
+  if (!rawError || looksLikeHtml) {
+    return fallbackMessage;
+  }
+
+  if (response.status >= 500 && /^server error:/i.test(rawError)) {
+    return fallbackMessage;
+  }
+
+  return rawError;
+}
+
 async function request(path, options = {}) {
   const response = await fetch(path, {
     method: options.method || "GET",
@@ -12,7 +31,7 @@ async function request(path, options = {}) {
   const payload = isJson ? await response.json() : { error: await response.text() };
 
   if (!response.ok) {
-    throw new Error(payload.error || "Company research failed.");
+    throw new Error(normalizeApiErrorMessage(response, payload));
   }
 
   return payload;

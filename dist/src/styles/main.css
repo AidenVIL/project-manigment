@@ -1405,7 +1405,7 @@ textarea {
 }
 
 .modal-card {
-  width: min(1100px, 100%);
+  width: min(1280px, 100%);
   max-height: calc(100vh - 2.4rem);
   overflow: auto;
   padding: 1.35rem;
@@ -1421,7 +1421,7 @@ textarea {
 
 .modal-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) 380px;
+  grid-template-columns: minmax(0, 1.1fr) minmax(420px, 540px);
   gap: 1rem;
   align-items: start;
 }
@@ -1515,6 +1515,22 @@ textarea {
   gap: 1rem;
 }
 
+.finder-workspace {
+  display: grid;
+  gap: 1rem;
+}
+
+.finder-workspace--split {
+  grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+  align-items: start;
+}
+
+.finder-workspace__controls,
+.finder-workspace__results {
+  display: grid;
+  gap: 1rem;
+}
+
 .finder-mode-toggle,
 .finder-actions {
   display: grid;
@@ -1600,6 +1616,18 @@ textarea {
 .finder-item__meta {
   display: grid;
   gap: 0.2rem;
+}
+
+.finder-item__badge {
+  display: inline-flex;
+  width: fit-content;
+  padding: 0.24rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(50, 206, 50, 0.12);
+  color: var(--text);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.2;
 }
 
 .research-chip-list {
@@ -1845,7 +1873,8 @@ textarea {
   .mailbox-grid,
   .editor-layout,
   .workflow-steps,
-  .editor-subheader {
+  .editor-subheader,
+  .finder-workspace--split {
     grid-template-columns: 1fr;
   }
 

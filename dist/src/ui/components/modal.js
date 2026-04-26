@@ -121,7 +121,23 @@ function renderCompanyCandidateList(candidates = [], action, buttonLabel = "Sele
               <div class="finder-item__meta">
                 <strong>${escapeHtml(candidate.companyName || candidate.title || "Company result")}</strong>
                 <span>${escapeHtml(candidate.website || "")}</span>
-                ${candidate.snippet ? `<small>${escapeHtml(candidate.snippet)}</small>` : ""}
+                ${
+                  candidate.sponsorFitLabel
+                    ? `<small class="finder-item__badge">${escapeHtml(candidate.sponsorFitLabel)}</small>`
+                    : ""
+                }
+                ${
+                  candidate.summaryLine || candidate.snippet
+                    ? `<small>${escapeHtml(candidate.summaryLine || candidate.snippet || "")}</small>`
+                    : ""
+                }
+                ${
+                  candidate.sponsorSignalsLine
+                    ? `<small>${escapeHtml(candidate.sponsorSignalsLine)}</small>`
+                    : candidate.sponsorEmail
+                      ? `<small>${escapeHtml(`Public email: ${candidate.sponsorEmail}`)}</small>`
+                      : ""
+                }
               </div>
               <button
                 type="button"
@@ -155,6 +171,27 @@ export function renderCompanyModal(modalState, company) {
   const researchCandidates = researchResult?.candidates || [];
   const companyCandidates = researchResult?.companyCandidates || [];
   const researchWarnings = researchResult?.warnings || [];
+  const isWebsiteMode = modalState.researchMode === "website";
+  const isIndustryMode = modalState.companySearchMode === "industry";
+  const primaryFinderLabel = isWebsiteMode
+    ? "Company Name (optional)"
+    : isIndustryMode
+      ? "Industry"
+      : "Company Name";
+  const primaryFinderPlaceholder = isWebsiteMode
+    ? "Atomic sponsor target"
+    : isIndustryMode
+      ? "insurance, engineering, print"
+      : "Morris Prints";
+  const contextLabel = isIndustryMode ? "Company Name / Extra Clue" : "Context";
+  const contextPlaceholder = isIndustryMode
+    ? "Ancile, London, travel insurance"
+    : "insurance, manufacturing, engineering";
+  const finderHelpText = isWebsiteMode
+    ? "Add a public website to scan named contacts, public emails, and page locations."
+    : isIndustryMode
+      ? "Search by industry first, then use the extra clue field to bias the shortlist toward the right company."
+      : "Search by company name, then rank the likely matches by your context before scanning one.";
 
   return `
     <div class="modal-backdrop ${isOpen ? "is-open" : ""}" aria-hidden="${isOpen ? "false" : "true"}">
@@ -368,119 +405,121 @@ export function renderCompanyModal(modalState, company) {
                   Company
                 </button>
               </div>
-              <div class="finder-inputs">
-                <label class="field">
-                  <span>${modalState.researchMode === "website" ? "Company Name (optional)" : "Company Name"}</span>
-                  <input
-                    data-finder-field="finderCompanyName"
-                    placeholder="${modalState.researchMode === "website" ? "Atomic sponsor target" : "Morris Prints"}"
-                    value="${escapeHtml(modalState.finderCompanyName || "")}"
-                  />
-                </label>
+              <div class="finder-workspace ${modalState.researchMode === "company" ? "finder-workspace--split" : ""}">
+                <div class="finder-workspace__controls">
+                  <div class="finder-inputs">
+                    <label class="field">
+                      <span>${primaryFinderLabel}</span>
+                      <input
+                        data-finder-field="finderCompanyName"
+                        placeholder="${primaryFinderPlaceholder}"
+                        value="${escapeHtml(modalState.finderCompanyName || "")}"
+                      />
+                    </label>
+                    ${
+                      isWebsiteMode
+                        ? `
+                          <label class="field">
+                            <span>Website URL</span>
+                            <input
+                              data-finder-field="finderWebsite"
+                              type="url"
+                              placeholder="https://company-site.com"
+                              value="${escapeHtml(modalState.finderWebsite || "")}"
+                            />
+                          </label>
+                        `
+                        : `
+                          <label class="field">
+                            <span>${contextLabel}</span>
+                            <input
+                              data-finder-field="finderContext"
+                              placeholder="${contextPlaceholder}"
+                              value="${escapeHtml(modalState.finderContext || "")}"
+                            />
+                          </label>
+                          <div class="finder-mode-toggle finder-mode-toggle--sub">
+                            <button
+                              type="button"
+                              class="editor-tab ${modalState.companySearchMode === "company" ? "is-active" : ""}"
+                              data-action="set-company-search-mode"
+                              data-id="company"
+                            >
+                              Company Names
+                            </button>
+                            <button
+                              type="button"
+                              class="editor-tab ${modalState.companySearchMode === "industry" ? "is-active" : ""}"
+                              data-action="set-company-search-mode"
+                              data-id="industry"
+                            >
+                              Industry
+                            </button>
+                          </div>
+                        `
+                    }
+                  </div>
+                  <p class="finder-help">
+                    ${finderHelpText}
+                  </p>
+                  <div class="finder-actions">
+                    <button
+                      type="button"
+                      class="primary-button primary-button--full"
+                      data-action="research-company"
+                      ${modalState.researchLoading ? "disabled" : ""}
+                    >
+                      ${modalState.researchLoading ? "Searching..." : "Run Finder"}
+                    </button>
+                    ${
+                      researchResult
+                        ? `<button type="button" class="ghost-button primary-button--full" data-action="apply-research-suggestions">
+                            Apply Overall Suggestions
+                          </button>`
+                        : ""
+                    }
+                  </div>
+                  ${
+                    modalState.researchError
+                      ? `<div class="inline-message inline-message--danger">${escapeHtml(modalState.researchError)}</div>`
+                      : ""
+                  }
+                  ${
+                    researchWarnings.length
+                      ? `
+                        <div class="inline-message inline-message--warning">
+                          ${researchWarnings.map((warning) => escapeHtml(warning)).join("<br />")}
+                        </div>
+                      `
+                      : ""
+                  }
+                  ${
+                    researchResult
+                      ? `
+                        <div class="finder-summary">
+                          <strong>${escapeHtml(researchResult.website || researchResult.companyName || "Finder results")}</strong>
+                          <span>${escapeHtml(researchResult.summary || "No summary generated.")}</span>
+                        </div>
+                      `
+                      : `<p class="research-empty">Run the finder to build a selectable list of public emails and contact clues.</p>`
+                  }
+                </div>
                 ${
-                  modalState.researchMode === "website"
+                  modalState.researchMode === "company"
                     ? `
-                      <label class="field">
-                        <span>Website URL</span>
-                        <input
-                          data-finder-field="finderWebsite"
-                          type="url"
-                          placeholder="https://company-site.com"
-                          value="${escapeHtml(modalState.finderWebsite || "")}"
-                        />
-                      </label>
-                    `
-                    : `
-                      <label class="field">
-                        <span>Context</span>
-                        <input
-                          data-finder-field="finderContext"
-                          placeholder="insurance, manufacturing, engineering"
-                          value="${escapeHtml(modalState.finderContext || "")}"
-                        />
-                      </label>
-                      <div class="finder-mode-toggle finder-mode-toggle--sub">
-                        <button
-                          type="button"
-                          class="editor-tab ${modalState.companySearchMode === "company" ? "is-active" : ""}"
-                          data-action="set-company-search-mode"
-                          data-id="company"
-                        >
-                          Company Names
-                        </button>
-                        <button
-                          type="button"
-                          class="editor-tab ${modalState.companySearchMode === "industry" ? "is-active" : ""}"
-                          data-action="set-company-search-mode"
-                          data-id="industry"
-                        >
-                          Industry
-                        </button>
+                      <div class="finder-workspace__results">
+                        <div class="finder-section">
+                          <div class="finder-section__head">
+                            <strong>Potential Companies</strong>
+                            <span>${escapeHtml(String(companyCandidates.length))}</span>
+                          </div>
+                          ${renderCompanyCandidateList(companyCandidates, "select-company-candidate", "Select")}
+                        </div>
                       </div>
                     `
-                }
-              </div>
-              <p class="finder-help">
-                ${
-                  modalState.researchMode === "website"
-                    ? "Add a public website to scan named contacts, public emails, and page locations."
-                    : "Search by company name, then rank the likely matches by your context before scanning one."
-                }
-              </p>
-              <div class="finder-actions">
-                <button
-                  type="button"
-                  class="primary-button primary-button--full"
-                  data-action="research-company"
-                  ${modalState.researchLoading ? "disabled" : ""}
-                >
-                  ${modalState.researchLoading ? "Searching..." : "Run Finder"}
-                </button>
-                ${
-                  researchResult
-                    ? `<button type="button" class="ghost-button primary-button--full" data-action="apply-research-suggestions">
-                        Apply Overall Suggestions
-                      </button>`
                     : ""
                 }
               </div>
-              ${
-                modalState.researchError
-                  ? `<div class="inline-message inline-message--danger">${escapeHtml(modalState.researchError)}</div>`
-                  : ""
-              }
-              ${
-                researchWarnings.length
-                  ? `
-                    <div class="inline-message inline-message--warning">
-                      ${researchWarnings.map((warning) => escapeHtml(warning)).join("<br />")}
-                    </div>
-                  `
-                  : ""
-              }
-              ${
-                researchResult
-                  ? `
-                    <div class="finder-summary">
-                      <strong>${escapeHtml(researchResult.website || researchResult.companyName || "Finder results")}</strong>
-                      <span>${escapeHtml(researchResult.summary || "No summary generated.")}</span>
-                    </div>
-                  `
-                  : `<p class="research-empty">Run the finder to build a selectable list of public emails and contact clues.</p>`
-              }
-              ${
-                modalState.researchMode === "company"
-                  ? `
-                    <div class="finder-section">
-                      <div class="finder-section__head">
-                        <strong>Potential Companies</strong>
-                        <span>${escapeHtml(String(companyCandidates.length))}</span>
-                      </div>
-                      ${renderCompanyCandidateList(companyCandidates, "select-company-candidate", "Select")}
-                    </div>
-                  `
-                  : ""
-              }
               ${
                 researchResult?.website
                   ? `
