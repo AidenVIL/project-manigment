@@ -37,6 +37,44 @@ const PREVIEW_COMPANY = createCompany({
   nextFollowUp: new Date().toISOString().slice(0, 10)
 });
 
+const workspaceViews = [
+  {
+    id: "overview",
+    label: "Overview",
+    eyebrow: "Command View",
+    title: "Fundraising control centre",
+    description: "Track progress, partner mix, and the current shape of the sponsor pipeline."
+  },
+  {
+    id: "companies",
+    label: "Companies",
+    eyebrow: "Sponsor CRM",
+    title: "Company pipeline",
+    description: "Manage sponsor targets, outreach state, follow-ups, and contribution details."
+  },
+  {
+    id: "calendar",
+    label: "Calendar",
+    eyebrow: "Deadlines",
+    title: "Follow-up schedule",
+    description: "See milestone dates, interviews, and the next actions due across the pipeline."
+  },
+  {
+    id: "mailbox",
+    label: "Mailbox",
+    eyebrow: "Inbox",
+    title: "Shared outreach inbox",
+    description: "Search the team mailbox, review incoming replies, and send direct follow-ups."
+  },
+  {
+    id: "emails",
+    label: "Email Studio",
+    eyebrow: "Templates",
+    title: "Email templates and drafts",
+    description: "Build master templates, spin up one-off drafts, and keep outreach copy consistent."
+  }
+];
+
 const state = {
   loading: true,
   loginError: "",
@@ -85,6 +123,7 @@ const state = {
       error: ""
     }
   },
+  workspaceView: "overview",
   preferredCompanyId: "",
   editor: null,
   toast: ""
@@ -151,6 +190,18 @@ function getModalCompany() {
   }
 
   return state.companies.find((company) => company.id === state.modal.companyId) || createCompany();
+}
+
+function getWorkspaceView() {
+  return workspaceViews.find((view) => view.id === state.workspaceView) || workspaceViews[0];
+}
+
+function setWorkspaceView(viewId) {
+  if (!workspaceViews.some((view) => view.id === viewId)) {
+    return;
+  }
+
+  state.workspaceView = viewId;
 }
 
 function getFilteredCompanies() {
@@ -726,6 +777,26 @@ function renderShell() {
   const calendarMonth = buildCalendarMonthView(events, state.calendar.referenceDate);
   const modeLabel = isLiveMode() ? "Live Supabase mode" : "Demo mode";
   const workflowContext = getFollowUpWorkflowContext();
+  const activeView = getWorkspaceView();
+  const activeWorkspaceMarkup =
+    activeView.id === "overview"
+      ? renderDashboardView({ config: APP_CONFIG, snapshot })
+      : activeView.id === "companies"
+        ? renderCompaniesView({
+            filters: state.filters,
+            companies: filteredCompanies,
+            totalCompanies: state.companies.length
+          })
+        : activeView.id === "calendar"
+          ? renderCalendarView({ events, summary, calendarMonth })
+          : activeView.id === "mailbox"
+            ? renderMailboxView({
+                mailbox: state.mailbox
+              })
+            : renderEmailStudioView({
+                templates: state.templates,
+                drafts: state.drafts
+              });
 
   return `
     <div class="site-layout">
@@ -740,13 +811,6 @@ function renderShell() {
           <h1>${escapeHtml(APP_CONFIG.teamName)}</h1>
           <p>${escapeHtml(APP_CONFIG.seasonLabel)}</p>
         </div>
-        <nav class="sidebar-panel nav-panel">
-          <a href="#overview">Overview</a>
-          <a href="#companies">Companies</a>
-          <a href="#calendar">Calendar</a>
-          <a href="#mailbox">Mailbox</a>
-          <a href="#emails">Email Studio</a>
-        </nav>
         <div class="sidebar-panel status-panel">
           <span class="metric-label">Workspace Mode</span>
           <strong>${modeLabel}</strong>
@@ -763,22 +827,41 @@ function renderShell() {
               : ""
           }
         </div>
+        <div class="sidebar-panel status-panel">
+          <span class="metric-label">Current Workspace</span>
+          <strong>${escapeHtml(activeView.label)}</strong>
+          <p>${escapeHtml(activeView.description)}</p>
+        </div>
       </aside>
       <main class="workspace">
-        ${renderDashboardView({ config: APP_CONFIG, snapshot })}
-        ${renderCompaniesView({
-          filters: state.filters,
-          companies: filteredCompanies,
-          totalCompanies: state.companies.length
-        })}
-        ${renderCalendarView({ events, summary, calendarMonth })}
-        ${renderMailboxView({
-          mailbox: state.mailbox
-        })}
-        ${renderEmailStudioView({
-          templates: state.templates,
-          drafts: state.drafts
-        })}
+        <section class="workspace-topbar panel">
+          <div class="workspace-topbar__copy">
+            <span class="eyebrow">${escapeHtml(activeView.eyebrow)}</span>
+            <h2>${escapeHtml(activeView.title)}</h2>
+            <p>${escapeHtml(activeView.description)}</p>
+          </div>
+          <div class="workspace-tabs" role="tablist" aria-label="Workspace sections">
+            ${workspaceViews
+              .map(
+                (view) => `
+                  <button
+                    type="button"
+                    class="workspace-tab ${view.id === activeView.id ? "is-active" : ""}"
+                    data-action="set-workspace-view"
+                    data-id="${view.id}"
+                    role="tab"
+                    aria-selected="${view.id === activeView.id ? "true" : "false"}"
+                  >
+                    ${escapeHtml(view.label)}
+                  </button>
+                `
+              )
+              .join("")}
+          </div>
+        </section>
+        <section class="workspace-pane">
+          ${activeWorkspaceMarkup}
+        </section>
       </main>
       ${renderCompanyModal(state.modal, getModalCompany())}
       ${
@@ -1004,8 +1087,8 @@ function closeEditor() {
 
 function focusEmailStudioForCompany(companyId) {
   state.preferredCompanyId = companyId;
+  setWorkspaceView("emails");
   renderApp();
-  document.querySelector("#emails")?.scrollIntoView({ behavior: "smooth", block: "start" });
   showToast("Draft mode will now default to that company.");
 }
 
@@ -1702,6 +1785,10 @@ root.addEventListener("click", async (event) => {
       return;
     case "calendar-month-next":
       shiftCalendarReference(1);
+      renderApp();
+      return;
+    case "set-workspace-view":
+      setWorkspaceView(id);
       renderApp();
       return;
     case "open-follow-up-workflow":

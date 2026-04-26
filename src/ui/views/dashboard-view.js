@@ -38,7 +38,9 @@ export function renderDashboardView({ config, snapshot }) {
         </p>
         <div class="hero-actions">
           <button type="button" class="primary-button" data-action="open-add-company">Add Company</button>
-          <a href="#emails" class="ghost-link">Open Email Studio</a>
+          <button type="button" class="ghost-button" data-action="set-workspace-view" data-id="emails">
+            Open Email Studio
+          </button>
         </div>
       </div>
       <div class="hero-art">

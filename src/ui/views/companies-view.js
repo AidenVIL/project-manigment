@@ -26,6 +26,49 @@ function getToneClass(status) {
   return tones[status] || "muted";
 }
 
+function getOutreachState(company) {
+  if (!company.firstContacted) {
+    return {
+      tone: "danger",
+      cardTone: "uncontacted",
+      label: "No Email Sent"
+    };
+  }
+
+  if (company.responseStatus === "won" || company.status === "secured") {
+    return {
+      tone: "success",
+      cardTone: "confirmed",
+      label: "Support Confirmed"
+    };
+  }
+
+  if (
+    ["interested", "requested_info", "interview"].includes(company.responseStatus) ||
+    ["warm", "proposal", "negotiating"].includes(company.status)
+  ) {
+    return {
+      tone: "info",
+      cardTone: "active",
+      label: "Engaged"
+    };
+  }
+
+  if (company.responseStatus === "declined" || company.status === "closed") {
+    return {
+      tone: "muted",
+      cardTone: "closed",
+      label: "Closed Out"
+    };
+  }
+
+  return {
+    tone: "warning",
+    cardTone: "contacted",
+    label: "Contacted"
+  };
+}
+
 export function renderCompaniesView({ filters, companies, totalCompanies }) {
   const statusOptions = [
     { value: "all", label: "All statuses" },
@@ -36,9 +79,10 @@ export function renderCompaniesView({ filters, companies, totalCompanies }) {
     ? companies
         .map((company) => {
           const followUpDays = daysUntil(company.nextFollowUp);
+          const outreachState = getOutreachState(company);
 
           return `
-            <article class="company-card panel">
+            <article class="company-card company-card--${outreachState.cardTone} panel">
               <div class="company-card-top">
                 <div class="company-avatar">${escapeHtml(getInitials(company.companyName))}</div>
                 <div>
@@ -53,6 +97,7 @@ export function renderCompaniesView({ filters, companies, totalCompanies }) {
                   }
                 </div>
                 <div class="company-actions">
+                  <span class="badge badge--${outreachState.tone}">${escapeHtml(outreachState.label)}</span>
                   <span class="badge badge--${getToneClass(company.status)}">${escapeHtml(
                     getOptionLabel(companyStatusOptions, company.status)
                   )}</span>
