@@ -518,6 +518,18 @@ export function renderCompanyModal(modalState, company) {
                       ${modalState.researchLoading ? "Searching..." : "Run Finder"}
                     </button>
                     ${
+                      modalState.researchMode === "company"
+                        ? `<button
+                            type="button"
+                            class="ghost-button primary-button--full"
+                            data-action="research-external"
+                            ${modalState.researchLoading ? "disabled" : ""}
+                          >
+                            Search External Sponsor Sources
+                          </button>`
+                        : ""
+                    }
+                    ${
                       researchResult
                         ? `<button type="button" class="ghost-button primary-button--full" data-action="apply-research-suggestions">
                             Apply Overall Suggestions

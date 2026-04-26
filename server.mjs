@@ -881,6 +881,25 @@ function buildIndustrySearchQueries(industry = "", context = "") {
     .filter(Boolean);
 }
 
+function buildExternalSponsorSearchQueries(industry = "", context = "") {
+  const normalizedIndustry = normalizeWhitespace(industry);
+  const normalizedContext = normalizeWhitespace(context);
+
+  return [
+    `${normalizedIndustry} uk company sponsorship opportunities`,
+    `${normalizedIndustry} uk corporate partnerships`,
+    `${normalizedIndustry} uk sponsor us`,
+    `${normalizedIndustry} uk partner with us`,
+    `${normalizedIndustry} uk companies house`,
+    `${normalizedIndustry} site:.co.uk sponsorship`,
+    `${normalizedIndustry} site:.org.uk partnerships`,
+    normalizedContext ? `${normalizedIndustry} ${normalizedContext} uk sponsor` : "",
+    normalizedContext ? `${normalizedIndustry} ${normalizedContext} uk partnerships` : ""
+  ]
+    .map((entry) => normalizeWhitespace(entry))
+    .filter(Boolean);
+}
+
 function buildCompanySearchQueries(companyName = "", context = "") {
   const normalizedName = normalizeWhitespace(companyName);
   const normalizedContext = normalizeWhitespace(context);
@@ -1521,6 +1540,74 @@ async function discoverCompanyCandidatesFromSearch({
     candidates = await rankCompanyCandidatesForIndustry(candidates);
   }
 
+  return candidates;
+}
+
+async function discoverExternalSponsorCandidates({ industry = "", context = "" } = {}) {
+  const normalizedIndustry = String(industry || "").trim();
+  if (!normalizedIndustry) {
+    throw new Error("Add an industry first.");
+  }
+
+  const searchQueries = dedupeBy(
+    [
+      ...buildExternalSponsorSearchQueries(normalizedIndustry, context),
+      ...buildIndustrySearchQueries(normalizedIndustry, context)
+    ],
+    (entry) => entry.toLowerCase()
+  );
+
+  const collectedResults = [];
+  for (const searchQuery of searchQueries) {
+    try {
+      const html = await fetchBingSearchHtml(searchQuery);
+      collectedResults.push(...parseSearchResults(html));
+    } catch {
+      // Continue searching via other query variants.
+    }
+  }
+
+  let candidates = dedupeBy(
+    collectedResults
+      .map((result) => {
+        const inferredName = inferCompanyNameFromSearchResult(result.title, result.website, normalizedIndustry);
+        const candidate = {
+          id: crypto.randomUUID(),
+          companyName: inferredName,
+          website: result.website,
+          title: result.title,
+          snippet: result.snippet,
+          areaLabel: "External source"
+        };
+
+        return {
+          ...candidate,
+          score:
+            scoreCompanyCandidate(candidate, {
+              companyName: normalizedIndustry,
+              context,
+              companySearchMode: "industry"
+            }) + 1
+        };
+      })
+      .filter((candidate) =>
+        candidateLooksRelevant(candidate, {
+          companyName: normalizedIndustry,
+          context,
+          companySearchMode: "industry"
+        })
+      )
+      .filter((candidate) => candidate.score > 0),
+    (candidate) => candidate.website
+  )
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 18);
+
+  if (!candidates.length) {
+    throw new Error("No likely external sponsor matches were found for that industry.");
+  }
+
+  candidates = await rankCompanyCandidatesForIndustry(candidates);
   return candidates;
 }
 
@@ -2197,6 +2284,41 @@ async function handleRequest(request, response) {
         companySearchMode: body.companySearchMode || "company"
       });
       sendJson(response, 200, result);
+    } catch (error) {
+      sendJson(response, 400, { error: error.message });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/external-sponsor-search") {
+    try {
+      const body = await readJsonBody(request);
+      const industry = String(body.industry || "").trim();
+      const context = String(body.context || "").trim();
+      const companyCandidates = await discoverExternalSponsorCandidates({
+        industry,
+        context
+      });
+
+      sendJson(response, 200, {
+        companyName: industry,
+        website: "",
+        searchMode: "company",
+        context,
+        companySearchMode: "industry",
+        companyCandidates,
+        contacts: [],
+        emails: [],
+        emailMatches: [],
+        phones: [],
+        pages: [],
+        signals: [],
+        sector: "",
+        recommendedAskType: "",
+        summary: `Found ${companyCandidates.length} likely external sponsor targets for ${industry}, ranked by public sponsorship-fit signals.`,
+        personalization: "",
+        fieldSuggestions: []
+      });
     } catch (error) {
       sendJson(response, 400, { error: error.message });
     }

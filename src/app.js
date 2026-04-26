@@ -2,6 +2,7 @@ import { APP_CONFIG, isSupabaseConfigured } from "./config/runtime-config.js";
 import { askTypeOptions, createCompany, getOptionLabel } from "./models/company-model.js";
 import { accountService } from "./services/account-service.js";
 import { authService } from "./services/auth-service.js";
+import { askCompanyAssistant } from "./services/company-chat-service.js";
 import {
   buildCalendarEvents,
   buildCalendarMonthView,
@@ -114,6 +115,17 @@ const state = {
     selectedCompanyCandidateId: "",
     appliedCompanyCandidateId: "",
     completedResearchEntries: []
+  },
+  assistant: {
+    open: false,
+    input: "",
+    loading: false,
+    messages: [
+      {
+        role: "assistant",
+        text: "Hi, I’m your sponsor assistant. Ask me about tracked companies, follow-ups, or top-value targets."
+      }
+    ]
   },
   mailbox: {
     loading: false,
@@ -497,6 +509,41 @@ function applyResearchCompanyCandidate(candidate) {
     personalizationNotes: candidate.sponsorSignalsLine || state.modal.draft.personalizationNotes
   });
   state.modal.appliedCompanyCandidateId = candidate.id;
+}
+
+async function handleAssistantQuestion(question = "") {
+  const cleanQuestion = String(question || "").trim();
+  if (!cleanQuestion) {
+    return;
+  }
+
+  state.assistant.loading = true;
+  state.assistant.messages.push({
+    role: "user",
+    text: cleanQuestion
+  });
+  state.assistant.input = "";
+  renderApp();
+
+  try {
+    const response = askCompanyAssistant({
+      question: cleanQuestion,
+      companies: state.companies
+    });
+
+    state.assistant.messages.push({
+      role: "assistant",
+      text: response.answer || "I couldn’t produce a useful answer yet."
+    });
+  } catch (error) {
+    state.assistant.messages.push({
+      role: "assistant",
+      text: error.message || "Sorry, I hit an issue answering that."
+    });
+  } finally {
+    state.assistant.loading = false;
+    renderApp();
+  }
 }
 
 function showToast(message) {
@@ -931,8 +978,78 @@ function renderShell() {
             })
           : ""
       }
+      ${renderAssistantWidget()}
       ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}
     </div>
+  `;
+}
+
+function renderAssistantWidget() {
+  const assistant = state.assistant;
+  const quickPrompts = [
+    "How many uncontacted companies?",
+    "Top ask right now",
+    "Follow-ups due soon"
+  ];
+
+  return `
+    <section class="assistant-widget ${assistant.open ? "is-open" : ""}">
+      <button type="button" class="assistant-widget__toggle" data-action="toggle-assistant">
+        ${assistant.open ? "Close Assistant" : "Ask Assistant"}
+      </button>
+      ${
+        assistant.open
+          ? `
+            <div class="assistant-widget__panel panel">
+              <div class="assistant-widget__head">
+                <strong>Sponsor Assistant</strong>
+              </div>
+              <div class="assistant-widget__messages">
+                ${assistant.messages
+                  .map(
+                    (message) => `
+                      <article class="assistant-widget__message assistant-widget__message--${message.role}">
+                        <p>${escapeHtml(message.text)}</p>
+                      </article>
+                    `
+                  )
+                  .join("")}
+              </div>
+              <div class="assistant-widget__prompts">
+                ${quickPrompts
+                  .map(
+                    (prompt) => `
+                      <button
+                        type="button"
+                        class="ghost-button ghost-button--compact"
+                        data-action="assistant-prompt"
+                        data-id="${escapeHtml(prompt)}"
+                      >
+                        ${escapeHtml(prompt)}
+                      </button>
+                    `
+                  )
+                  .join("")}
+              </div>
+              <form id="assistant-form" class="assistant-widget__form">
+                <input
+                  name="question"
+                  placeholder="Ask about your companies..."
+                  value="${escapeHtml(assistant.input || "")}"
+                  ${assistant.loading ? "disabled" : ""}
+                  required
+                />
+                <button type="submit" class="primary-button primary-button--compact" ${
+                  assistant.loading ? "disabled" : ""
+                }>
+                  ${assistant.loading ? "Thinking..." : "Ask"}
+                </button>
+              </form>
+            </div>
+          `
+          : ""
+      }
+    </section>
   `;
 }
 
@@ -1028,13 +1145,9 @@ async function loadAppData() {
 
 async function init() {
   if (isPasswordGateEnabled()) {
+    await authService.signOut();
     state.loading = false;
     renderApp();
-
-    if (authService.isSignedIn()) {
-      await loadAppData();
-    }
-
     return;
   }
 
@@ -1809,6 +1922,41 @@ async function runCompanyResearch() {
   }
 }
 
+async function runExternalSponsorSearch() {
+  const industry = String(state.modal.finderCompanyName || "").trim();
+  const context = String(state.modal.finderContext || "").trim();
+
+  if (!industry) {
+    showToast("Add an industry first for external sponsor search.");
+    return;
+  }
+
+  state.modal.researchLoading = true;
+  state.modal.researchError = "";
+  renderApp();
+
+  try {
+    const result = await companyResearchService.externalSponsorSearch({
+      industry,
+      context
+    });
+    state.modal.researchLoading = false;
+    state.modal.researchMode = "company";
+    state.modal.companySearchMode = "industry";
+    state.modal.researchResult = buildResearchResultViewModel(result);
+    state.modal.selectedCompanyCandidateId = result.companyCandidates?.[0]?.id || "";
+    state.modal.appliedCompanyCandidateId = "";
+    renderApp();
+    showToast("External sponsor search complete.");
+  } catch (error) {
+    console.error(error);
+    state.modal.researchLoading = false;
+    state.modal.researchError = error.message || "External sponsor search failed.";
+    renderApp();
+    showToast(error.message || "External sponsor search failed.");
+  }
+}
+
 async function saveTemplateFromEditor() {
   if (!state.editor || state.editor.mode !== "template") {
     return;
@@ -1922,6 +2070,13 @@ root.addEventListener("click", async (event) => {
       }
       renderApp();
       return;
+    case "toggle-assistant":
+      state.assistant.open = !state.assistant.open;
+      renderApp();
+      return;
+    case "assistant-prompt":
+      await handleAssistantQuestion(id || "");
+      return;
     case "open-follow-up-workflow":
       openFollowUpWorkflow(id);
       return;
@@ -1940,6 +2095,14 @@ root.addEventListener("click", async (event) => {
       }
 
       await runCompanyResearch();
+      return;
+    }
+    case "research-external": {
+      if (state.modal.researchLoading) {
+        return;
+      }
+
+      await runExternalSponsorSearch();
       return;
     }
     case "set-research-mode":
@@ -2563,6 +2726,13 @@ root.addEventListener("focusin", (event) => {
 
 root.addEventListener("submit", async (event) => {
   event.preventDefault();
+
+  if (event.target.id === "assistant-form") {
+    const formData = new FormData(event.target);
+    await handleAssistantQuestion(String(formData.get("question") || ""));
+    event.target.reset();
+    return;
+  }
 
   if (event.target.id === "login-form") {
     await handleLoginSubmit(event.target);

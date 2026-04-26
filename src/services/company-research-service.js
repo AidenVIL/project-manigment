@@ -43,5 +43,11 @@ export const companyResearchService = {
       method: "POST",
       body: JSON.stringify(input)
     });
+  },
+  async externalSponsorSearch(input) {
+    return request("/api/external-sponsor-search", {
+      method: "POST",
+      body: JSON.stringify(input)
+    });
   }
 };
