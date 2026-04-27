@@ -62,25 +62,179 @@ The app uses:
 - Supabase Data REST endpoints for CRUD
 - anonymous row-level security policies for Mk 1 shared access
 
+## Where to Put API Keys
+
+### For Raspberry Pi Production
+
+**Location**: `~/project-manigment/.env`
+
+Create a `.env` file in the home directory of the Raspberry Pi:
+
+```bash
+cd ~/project-manigment
+cp .env.example .env
+nano .env  # Edit with your values
+```
+
+See [`PI_ENV_TEMPLATE.txt`](./PI_ENV_TEMPLATE.txt) for a pre-configured template.
+
+### For Render Cloud Deployment
+
+Set environment variables in the Render dashboard:
+- Go to your service > Environment
+- Add each variable from [`PI_ENV_TEMPLATE.txt`](./PI_ENV_TEMPLATE.txt)
+
+### For Local Development
+
+Create `.env` in project root with test values. This file is ignored by Git.
+
+### API Key Reference
+
+| Variable | Purpose | Where to Get | Visibility |
+|----------|---------|--------------|------------|
+| `GMAIL_ACCOUNT_EMAIL` | Team mailbox | Gmail | Safe to share |
+| `GOOGLE_CLIENT_ID` | OAuth provider | Google Cloud Console | Safe to share |
+| `GOOGLE_CLIENT_SECRET` | OAuth secret | Google Cloud Console | **KEEP SECRET** |
+| `PUBLIC_SUPABASE_URL` | Database URL | Supabase project settings | Safe (frontend) |
+| `PUBLIC_SUPABASE_ANON_KEY` | Public DB access | Supabase API settings | Safe (frontend) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Admin DB access | Supabase API settings | **KEEP SECRET** |
+| `PUBLIC_SITE_PASSWORD` | Access gate | Your choice | Safe to share with team |
+| `CLOUDFLARE_API_TOKEN` | Cache control | Cloudflare dashboard | **KEEP SECRET** |
+
+## Raspberry Pi Deployment
+
+### Initial Setup
+
+Run once on the Raspberry Pi:
+
+```bash
+cd ~/project-manigment
+npm install
+```
+
+### Configuration
+
+1. Create `.env` file:
+   ```bash
+   cp .env.example .env
+   nano .env  # Fill in your actual API keys
+   ```
+
+2. Start with PM2:
+   ```bash
+   pm2 start server.mjs --name morrisprints --update-env
+   pm2 save
+   pm2 startup
+   ```
+
+### One-Command Deployment
+
+After making changes on your PC:
+
+**PC Side:**
+```bash
+cd ~/Documents/project\ manigment
+git add .
+git commit -m "Your update message"
+git push origin main
+```
+
+**Raspberry Pi Side:**
+```bash
+cd ~/project-manigment
+npm run deploy:pi
+```
+
+This automatically:
+1. Installs dependencies
+2. Builds the frontend bundle
+3. Restarts the PM2 process with updated env
+4. Purges Cloudflare cache (if configured)
+
+### Verify Deployment
+
+After running `npm run deploy:pi`, you'll see startup diagnostics:
+
+```
+===== Sponsor Portal Startup Diagnostics =====
+Port: 3000
+Build version: 2026-04-27
+
+Configuration Status:
+  Supabase URL: ✓ configured
+  Supabase anon key: ✓ configured
+  Supabase service key: ✗ missing (optional for API-only mode)
+  Gmail account: ✓ configured
+  Site password: ✓ configured
+  Cloudflare token: ✗ missing (optional)
+
+Use .env file in ~/project-manigment/.env for Raspberry Pi
+Or use environment variables for Render/cloud deployment
+=============================================
+```
+
+### Cloudflare Cache Purge
+
+To automatically purge cache on deploy, set these in `.env`:
+
+```bash
+CLOUDFLARE_API_TOKEN=your_token_here
+CLOUDFLARE_ZONE_ID=your_zone_id_here
+```
+
+Get values from:
+- **API Token**: https://dash.cloudflare.com/ > My Profile > API Tokens (create token with cache purge permission)
+- **Zone ID**: https://dash.cloudflare.com/ > Your domain > Overview (scroll down)
+
+### Troubleshooting
+
+#### Supabase connection fails
+
+1. Check `.env` has correct keys:
+   ```bash
+   cat ~/project-manigment/.env | grep SUPABASE
+   ```
+
+2. Visit `https://pi.morrisprints.co.uk/` and check the Supabase status badge on login page
+
+3. Server logs should show status on startup - check with:
+   ```bash
+   pm2 logs morrisprints
+   ```
+
+#### Old frontend after deploy
+
+1. Manual Cloudflare purge:
+   ```bash
+   npm run purge:cloudflare
+   ```
+
+2. Or via Cloudflare dashboard: Purge Cache > Purge Everything
+
+3. Hard refresh browser (Ctrl+Shift+R or Cmd+Shift+R)
+
+#### PM2 process won't restart
+
+```bash
+pm2 kill
+pm2 start server.mjs --name morrisprints --update-env
+pm2 save
+```
+
+## Configuration Files
+
+- [`.env.example`](./.env.example) - Template with all available variables
+- [`PI_ENV_TEMPLATE.txt`](./PI_ENV_TEMPLATE.txt) - Pre-filled for Atomic F1 team Raspberry Pi
+- [`server.mjs`](./server.mjs) - Loads `.env` automatically via `dotenv`
+
 ## Render Deployment
 
 This repo includes [`render.yaml`](./render.yaml) and [`scripts/render-build.mjs`](./scripts/render-build.mjs).
 
-Set these environment variables in Render:
-
-- `PUBLIC_SUPABASE_URL`
-- `PUBLIC_SUPABASE_ANON_KEY`
-- `GEMINI_API_KEY` (optional)
-- `PUBLIC_SITE_PASSWORD`
-- `PUBLIC_TEAM_NAME`
-- `PUBLIC_SEASON_LABEL`
-- `PUBLIC_FUNDRAISING_TARGET`
-- `PUBLIC_TEAM_SIGNATURE`
-- `PUBLIC_TEAM_WEBSITE`
-
 Render will build a static `dist/` folder and publish it.
 
 > When running the Node server locally or on a Raspberry Pi, `server.mjs` now serves `/config.js` dynamically from the current environment variables. That means you can update `PUBLIC_*` env vars in PM2 or your shell and restart the server without needing an additional static rebuild.
+
 
 ## Easy Customisation Points
 

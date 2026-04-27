@@ -3,8 +3,13 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "dependencies": {
+    "dotenv": "^16.0.3"
+  },
   "scripts": {
     "build": "node scripts/render-build.mjs",
-    "start": "node server.mjs"
+    "start": "node server.mjs",
+    "purge:cloudflare": "node scripts/purge-cloudflare-cache.mjs",
+    "deploy:pi": "npm install && npm run build && pm2 restart morrisprints --update-env && npm run purge:cloudflare"
   }
 }

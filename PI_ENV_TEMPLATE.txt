@@ -1,0 +1,58 @@
+# ============================================================
+# RASPBERRY PI PRODUCTION ENVIRONMENT
+# ============================================================
+# This file is for the Atomic F1 team Raspberry Pi deployment
+# Location: ~/project-manigment/.env
+# Last updated: April 27, 2026
+
+# Gmail
+GMAIL_ACCOUNT_EMAIL=atomicf1team@gmail.com
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_REDIRECT_URI=https://pi.morrisprints.co.uk/auth/google/callback
+
+# Team Settings
+PUBLIC_FUNDRAISING_TARGET=30000
+PUBLIC_SITE_PASSWORD=atomic123
+PUBLIC_TEAM_NAME=Atomic
+PUBLIC_SEASON_LABEL=2026 Sponsor Programme
+PUBLIC_TEAM_SIGNATURE=Partnerships Team | Atomic
+PUBLIC_TEAM_WEBSITE=https://example-team-site.com
+PUBLIC_LOGO_PATH=./assets/atomic-logo-green.jpeg
+PUBLIC_BRAND_PRIMARY=#32ce32
+PUBLIC_BRAND_SECONDARY=#9bff5f
+PUBLIC_BRAND_TERTIARY=#d8ffd2
+PUBLIC_BRAND_DARK=#07110a
+
+# Supabase (these values are for PUBLIC access - safe to keep here)
+PUBLIC_SUPABASE_URL=https://frfavsxvfbxtobutgspe.supabase.co
+PUBLIC_SUPABASE_ANON_KEY=sb_publishable_Kkg_-BNgbzBGg4hO5tSqjg_VSGn7SEn
+
+# Supabase Server-side (same anon key for API calls)
+SUPABASE_URL=https://frfavsxvfbxtobutgspe.supabase.co
+SUPABASE_ANON_KEY=sb_publishable_Kkg_-BNgbzBGg4hO5tSqjg_VSGn7SEn
+
+# Supabase Service Role Key (for admin operations - keep SECRET)
+# Get this from Supabase project settings > API > Service role key
+# DO NOT share this value
+SUPABASE_SERVICE_ROLE_KEY=
+
+# Optional: Stripe (not currently used)
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
+
+# Optional: Admin token
+ADMIN_APP_TOKEN=
+
+# Cloudflare Tunnel Cache Purge (optional - for automatic cache clearing)
+# Get API token from: https://dash.cloudflare.com/ > My Profile > API Tokens
+# Zone ID for morrisprints.co.uk from: https://dash.cloudflare.com/
+CLOUDFLARE_API_TOKEN=
+CLOUDFLARE_ZONE_ID=
+
+# Deployment Settings
+PORT=3000
+
+# Optional: AI Company Research
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-2.5-flash

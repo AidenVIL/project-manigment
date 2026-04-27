@@ -3,9 +3,42 @@ import { stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join, normalize, resolve } from "node:path";
 import crypto from "node:crypto";
+import dotenv from "dotenv";
+
+// Load .env file for Raspberry Pi and local development
+dotenv.config();
 
 const distDir = resolve(process.cwd(), "dist");
 const port = Number(process.env.PORT || 3000);
+const buildVersion = new Date().toISOString().split("T")[0];
+
+// Startup diagnostics
+function logStartupDiagnostics() {
+  console.log("");
+  console.log("===== Sponsor Portal Startup Diagnostics =====");
+  console.log(`Port: ${port}`);
+  console.log(`Build version: ${buildVersion}`);
+  console.log("");
+  console.log("Configuration Status:");
+  
+  const supabaseUrl = process.env.PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+  const supabaseAnonKey = process.env.PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  
+  console.log(`  Supabase URL: ${supabaseUrl ? "✓ configured" : "✗ missing"}`);
+  console.log(`  Supabase anon key: ${supabaseAnonKey ? "✓ configured" : "✗ missing"}`);
+  console.log(`  Supabase service key: ${supabaseServiceKey ? "✓ configured" : "✗ missing (optional for API-only mode)"}`);
+  console.log(`  Gmail account: ${process.env.GMAIL_ACCOUNT_EMAIL ? "✓ configured" : "✗ missing"}`);
+  console.log(`  Site password: ${process.env.PUBLIC_SITE_PASSWORD ? "✓ configured" : "✗ missing"}`);
+  console.log(`  Cloudflare token: ${process.env.CLOUDFLARE_API_TOKEN ? "✓ configured" : "✗ missing (optional)"}`);
+  console.log("");
+  console.log("Use .env file in ~/project-manigment/.env for Raspberry Pi");
+  console.log("Or use environment variables for Render/cloud deployment");
+  console.log("=============================================");
+  console.log("");
+}
+
+logStartupDiagnostics();
 
 const mimeTypes = {
   ".css": "text/css; charset=utf-8",
@@ -112,9 +145,22 @@ function sendText(response, statusCode, message) {
   response.end(message);
 }
 
-function sendFile(response, filePath) {
+function sendFile(response, filePath, cacheStrategy = "default") {
   const contentType = mimeTypes[extname(filePath).toLowerCase()] || "application/octet-stream";
-  response.writeHead(200, { "Content-Type": contentType });
+  const headers = { "Content-Type": contentType };
+
+  if (cacheStrategy === "no-cache") {
+    headers["Cache-Control"] = "no-cache, no-store, must-revalidate";
+    headers["Pragma"] = "no-cache";
+    headers["Expires"] = "0";
+  } else if (cacheStrategy === "short") {
+    headers["Cache-Control"] = "public, max-age=3600";
+  } else {
+    // Default: long cache for hashed assets
+    headers["Cache-Control"] = "public, max-age=31536000, immutable";
+  }
+
+  response.writeHead(200, headers);
   createReadStream(filePath).pipe(response);
 }
 
@@ -2451,7 +2497,12 @@ async function handleRequest(request, response) {
   }
 
   if (request.method === "GET" && url.pathname === "/config.js") {
-    response.writeHead(200, { "Content-Type": "application/javascript; charset=utf-8" });
+    response.writeHead(200, {
+      "Content-Type": "application/javascript; charset=utf-8",
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      "Pragma": "no-cache",
+      "Expires": "0"
+    });
     response.end(getRuntimeConfigScript());
     return;
   }
@@ -2463,7 +2514,9 @@ async function handleRequest(request, response) {
 
   try {
     const filePath = await resolveRequestPath(url.pathname);
-    sendFile(response, filePath);
+    // Use no-cache for HTML files (index.html, SPA), short cache for app
+    const cacheStrategy = filePath.endsWith(".html") ? "no-cache" : filePath.match(/\.\w+$/) && !filePath.match(/\.[a-f0-9]{8,}/) ? "short" : "default";
+    sendFile(response, filePath, cacheStrategy);
   } catch (error) {
     sendText(response, 500, `Server error: ${error.message}`);
   }
