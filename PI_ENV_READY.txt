@@ -1,0 +1,62 @@
+# ============================================================
+# ATOMIC F1 RASPBERRY PI ENVIRONMENT - READY TO USE
+# ============================================================
+# Copy this file to .env and fill in only the blank values:
+#   cp PI_ENV_READY.txt .env
+#   nano .env  # Fill in GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, etc.
+#
+# Non-sensitive values are already pre-filled below
+# Only edit these if you want to change them:
+#   - GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+#   - SUPABASE_SERVICE_ROLE_KEY (admin only)
+#   - CLOUDFLARE_API_TOKEN, CLOUDFLARE_ZONE_ID (optional)
+# ============================================================
+
+# Gmail - Shared Team Mailbox
+GMAIL_ACCOUNT_EMAIL=atomicf1team@gmail.com
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_REDIRECT_URI=https://pi.morrisprints.co.uk/auth/google/callback
+
+# Portal Branding - Atomic F1
+PUBLIC_TEAM_NAME=Atomic
+PUBLIC_SEASON_LABEL=2026 Sponsor Programme
+PUBLIC_TEAM_SIGNATURE=Partnerships Team | Atomic
+PUBLIC_TEAM_WEBSITE=https://example-team-site.com
+PUBLIC_LOGO_PATH=./assets/atomic-logo-green.jpeg
+PUBLIC_BRAND_PRIMARY=#32ce32
+PUBLIC_BRAND_SECONDARY=#9bff5f
+PUBLIC_BRAND_TERTIARY=#d8ffd2
+PUBLIC_BRAND_DARK=#07110a
+
+# Portal Settings
+PUBLIC_FUNDRAISING_TARGET=30000
+PUBLIC_SITE_PASSWORD=atomic123
+
+# Supabase Database - Public Keys (Safe in Frontend)
+PUBLIC_SUPABASE_URL=https://frfavsxvfbxtobutgspe.supabase.co
+PUBLIC_SUPABASE_ANON_KEY=sb_publishable_Kkg_-BNgbzBGg4hO5tSqjg_VSGn7SEn
+
+# Supabase Server-side Access
+SUPABASE_URL=https://frfavsxvfbxtobutgspe.supabase.co
+SUPABASE_ANON_KEY=sb_publishable_Kkg_-BNgbzBGg4hO5tSqjg_VSGn7SEn
+SUPABASE_SERVICE_ROLE_KEY=
+
+# Optional: Stripe (Not Currently Used)
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
+
+# Optional: Admin Token
+ADMIN_APP_TOKEN=
+
+# Optional: Cloudflare Cache Purge on Deploy
+# Get from: https://dash.cloudflare.com/ > My Profile > API Tokens
+CLOUDFLARE_API_TOKEN=
+CLOUDFLARE_ZONE_ID=
+
+# Server Settings
+PORT=3000
+
+# Optional: AI Company Research
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-2.5-flash

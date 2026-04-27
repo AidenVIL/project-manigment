@@ -114,14 +114,17 @@ npm install
 
 ### Configuration
 
-1. Create `.env` file:
+1. Create `.env` file from the ready-to-use template:
    ```bash
-   cp .env.example .env
-   nano .env  # Fill in your actual API keys
+   cp PI_ENV_READY.txt .env
+   nano .env  # Only fill in the blank values (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, etc.)
    ```
+   
+   The file already has all Atomic F1 values pre-filled. See comments in the file for which secrets you need to add.
 
 2. Start with PM2:
    ```bash
+   npm run build
    pm2 start server.mjs --name morrisprints --update-env
    pm2 save
    pm2 startup
@@ -223,8 +226,8 @@ pm2 save
 
 ## Configuration Files
 
-- [`.env.example`](./.env.example) - Template with all available variables
-- [`PI_ENV_TEMPLATE.txt`](./PI_ENV_TEMPLATE.txt) - Pre-filled for Atomic F1 team Raspberry Pi
+- [`PI_ENV_READY.txt`](./PI_ENV_READY.txt) - **Ready-to-use for Atomic F1 Raspberry Pi** (copy to `.env` and edit missing values)
+- [`.env.example`](./.env.example) - Generic template for other environments or documentation
 - [`server.mjs`](./server.mjs) - Loads `.env` automatically via `dotenv`
 
 ## Render Deployment
