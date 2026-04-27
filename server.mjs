@@ -993,11 +993,14 @@ function collectSignals(combinedText = "") {
   const normalized = combinedText.toLowerCase();
   const signals = [];
   const rules = [
-    ["STEM or education activity", ["stem", "education", "students", "school", "learning"]],
-    ["Community or youth focus", ["community", "youth", "outreach", "charity", "volunteer"]],
-    ["Innovation messaging", ["innovation", "future", "engineering", "technology", "r&d"]],
-    ["Sustainability messaging", ["sustainability", "net zero", "carbon", "environment", "green"]],
-    ["Brand or content partnership angle", ["brand", "audience", "content", "storytelling", "campaign"]]
+    ["STEM or education activity", ["stem", "education", "students", "school", "learning", "university", "college"]],
+    ["Community or youth focus", ["community", "youth", "outreach", "charity", "volunteer", "mentorship"]],
+    ["Innovation messaging", ["innovation", "future", "engineering", "technology", "r&d", "research", "development"]],
+    ["Sustainability messaging", ["sustainability", "net zero", "carbon", "environment", "green", "eco"]],
+    ["Brand or content partnership angle", ["brand", "audience", "content", "storytelling", "campaign", "marketing"]],
+    ["Manufacturing capabilities", ["manufacturing", "production", "fabrication", "assembly", "cnc", "machining"]],
+    ["Technical expertise", ["technical", "expertise", "specialized", "advanced", "precision", "quality"]],
+    ["Partnership history", ["partnership", "collaboration", "sponsor", "support", "alliance"]]
   ];
 
   for (const [label, keywords] of rules) {
@@ -1029,18 +1032,22 @@ function buildHeuristicSummary({ companyName, sector, pages, signals, contacts, 
   return `${intro}${pageNote}${signalNote}${contactNote}`.trim();
 }
 
-function buildPersonalization({ companyName, sector, signals, contacts }) {
+function buildPersonalization({ companyName, sector, signals, contacts, recommendedAskType }) {
   const intro = contacts[0]?.name
     ? `Open by addressing ${contacts[0].name}${contacts[0].role ? ` and mention their ${contacts[0].role} role` : ""}.`
     : `Open by referencing ${companyName || "the company"} directly rather than using a generic sponsorship pitch.`;
   const sectorAngle = sector
-    ? ` Frame the partnership around the ${sector} angle and how Atomic can showcase that in a STEM Racing context.`
+    ? ` Frame the partnership around the ${sector} angle, highlighting how Atomic's STEM Racing team can showcase real-world applications of ${sector} in building and racing high-performance vehicles.`
     : "";
   const signalAngle = signals.length
     ? ` Mention ${signals[0].toLowerCase()} if it fits your ask, because it appears in the public website copy.`
     : "";
+  const askAngle = recommendedAskType && recommendedAskType !== "cash"
+    ? ` Consider asking for ${recommendedAskType} sponsorship, as their business expertise in ${recommendedAskType} can directly support our race car development and STEM education goals.`
+    : "";
+  const stemHook = " Emphasize how sponsorship helps fund student engineers learning cutting-edge skills in design, fabrication, and competition.";
 
-  return `${intro}${sectorAngle}${signalAngle}`.trim();
+  return `${intro}${sectorAngle}${signalAngle}${askAngle}${stemHook}`.trim();
 }
 
 function buildFieldSuggestions({ sector, recommendedAskType, signals, contacts, emails }) {
@@ -1800,7 +1807,7 @@ async function maybeRefineWithGemini(researchDraft) {
   }
 
   const prompt = {
-    task: "You are helping a student STEM Racing team personalise sponsor outreach. Return JSON only.",
+    task: "You are an AI assistant helping the Atomic STEM Racing team personalize sponsor outreach emails.the team has an engineering and enterpirse aspect ther is the disong of a modle stem racing car and the enterprise side with projectmanigment and sponsership procuremnt and more. Analyze the company research data and generate highly specific, tailored advice for crafting sponsorship emails. Include: 1) How to open the email addressing key contacts, 2) Specific sponsorship asks based on the company's business (e.g., machining services for car parts, software for simulations), 3) Talking points that connect their products/services to STEM education and racing innovation, 4) How the partnership benefits both parties in the context of student engineering projects. Make suggestions concrete and actionable and give spefic information about any companies being asked with context. Return JSON only.",
     required_shape: {
       summary: "string",
       sector: "string",
@@ -1971,7 +1978,8 @@ async function researchCompanyWebsite({
       companyName: resolvedCompanyName,
       sector,
       signals,
-      contacts
+      contacts,
+      recommendedAskType
     }),
     fieldSuggestions: buildFieldSuggestions({
       sector,

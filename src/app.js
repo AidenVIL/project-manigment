@@ -172,6 +172,8 @@ let activeDropZone = null;
 let currentLayoutDrag = null;
 let pendingFocusRestoreFrame = null;
 let isRestoringEditorFocus = false;
+let pendingCompanySearchFocusRestoreFrame = null;
+let companySearchFocusSnapshot = null;
 
 function clone(value) {
   return structuredClone(value);
@@ -1124,6 +1126,49 @@ function scheduleEditorFocusRestore() {
     restoreEditorFocus();
     shouldRestoreEditorFocus = false;
     pendingFocusRestoreFrame = null;
+  });
+}
+
+function restoreCompanySearchFocus() {
+  if (!companySearchFocusSnapshot) {
+    return;
+  }
+
+  const input = root.querySelector("#company-search");
+  if (!input) {
+    return;
+  }
+
+  const focusTarget = { ...companySearchFocusSnapshot };
+  companySearchFocusSnapshot = null;
+
+  try {
+    input.focus({ preventScroll: true });
+
+    if (
+      typeof focusTarget.selectionStart === "number" &&
+      typeof focusTarget.selectionEnd === "number" &&
+      typeof input.setSelectionRange === "function"
+    ) {
+      input.setSelectionRange(
+        focusTarget.selectionStart,
+        focusTarget.selectionEnd,
+        focusTarget.selectionDirection || "none"
+      );
+    }
+  } finally {
+    // Nothing else needed here.
+  }
+}
+
+function scheduleCompanySearchFocusRestore() {
+  if (pendingCompanySearchFocusRestoreFrame) {
+    window.cancelAnimationFrame(pendingCompanySearchFocusRestoreFrame);
+  }
+
+  pendingCompanySearchFocusRestoreFrame = window.requestAnimationFrame(() => {
+    restoreCompanySearchFocus();
+    pendingCompanySearchFocusRestoreFrame = null;
   });
 }
 
@@ -2818,7 +2863,13 @@ root.addEventListener("click", async (event) => {
 root.addEventListener("input", (event) => {
   if (event.target.id === "company-search") {
     state.filters.search = event.target.value;
+    companySearchFocusSnapshot = {
+      selectionStart: event.target.selectionStart,
+      selectionEnd: event.target.selectionEnd,
+      selectionDirection: event.target.selectionDirection
+    };
     renderApp();
+    scheduleCompanySearchFocusRestore();
     return;
   }
 
