@@ -80,6 +80,8 @@ Set these environment variables in Render:
 
 Render will build a static `dist/` folder and publish it.
 
+> When running the Node server locally or on a Raspberry Pi, `server.mjs` now serves `/config.js` dynamically from the current environment variables. That means you can update `PUBLIC_*` env vars in PM2 or your shell and restart the server without needing an additional static rebuild.
+
 ## Easy Customisation Points
 
 - Branding and team text: [`config.js`](./config.js)

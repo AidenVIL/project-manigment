@@ -118,6 +118,30 @@ function sendFile(response, filePath) {
   createReadStream(filePath).pipe(response);
 }
 
+function getRuntimeConfigScript() {
+  const runtimeConfig = {
+    teamName: process.env.PUBLIC_TEAM_NAME || "Atomic",
+    seasonLabel: process.env.PUBLIC_SEASON_LABEL || "2026 Sponsor Programme",
+    fundraisingTarget: Number(process.env.PUBLIC_FUNDRAISING_TARGET || 75000),
+    teamSignature: process.env.PUBLIC_TEAM_SIGNATURE || "Partnerships Team | Atomic",
+    teamWebsite: process.env.PUBLIC_TEAM_WEBSITE || "https://example-team-site.com",
+    sitePassword: process.env.PUBLIC_SITE_PASSWORD || "changeme123",
+    logoPath: process.env.PUBLIC_LOGO_PATH || "./assets/atomic-logo-green.jpeg",
+    brand: {
+      primary: process.env.PUBLIC_BRAND_PRIMARY || "#32ce32",
+      secondary: process.env.PUBLIC_BRAND_SECONDARY || "#9bff5f",
+      tertiary: process.env.PUBLIC_BRAND_TERTIARY || "#d8ffd2",
+      dark: process.env.PUBLIC_BRAND_DARK || "#07110a"
+    },
+    supabase: {
+      url: process.env.PUBLIC_SUPABASE_URL || "",
+      anonKey: process.env.PUBLIC_SUPABASE_ANON_KEY || ""
+    }
+  };
+
+  return `window.RUNTIME_CONFIG = ${JSON.stringify(runtimeConfig, null, 2)};\n`;
+}
+
 async function resolveRequestPath(urlPathname) {
   const safePath = normalize(decodeURIComponent(urlPathname)).replace(/^(\.\.[/\\])+/, "");
   let targetPath = join(distDir, safePath);
@@ -1802,12 +1826,16 @@ function buildBlockedResearchResult({
 }
 
 async function maybeRefineWithGemini(researchDraft) {
-  if (!runtimeSecrets.geminiApiKey) {
+  const useOllama = (process.env.USE_OLLAMA || "").toLowerCase() === "true";
+  const ollamaEndpoint = process.env.OLLAMA_ENDPOINT || "http://localhost:11434";
+  const ollamaModel = process.env.OLLAMA_MODEL || "mistral";
+
+  if (!useOllama && !runtimeSecrets.geminiApiKey) {
     return null;
   }
 
   const prompt = {
-    task: "You are an AI assistant helping the Atomic STEM Racing team personalize sponsor outreach emails.the team has an engineering and enterpirse aspect ther is the disong of a modle stem racing car and the enterprise side with projectmanigment and sponsership procuremnt and more. Analyze the company research data and generate highly specific, tailored advice for crafting sponsorship emails. Include: 1) How to open the email addressing key contacts, 2) Specific sponsorship asks based on the company's business (e.g., machining services for car parts, software for simulations), 3) Talking points that connect their products/services to STEM education and racing innovation, 4) How the partnership benefits both parties in the context of student engineering projects. Make suggestions concrete and actionable and give spefic information about any companies being asked with context. Return JSON only.",
+    task: "You are an AI assistant helping the Atomic STEM Racing team personalize sponsor outreach emails. The team has an engineering and enterprise aspect with the design of a model stem racing car and the enterprise side with project management and sponsorship procurement and more. Analyze the company research data and generate highly specific, tailored advice for crafting sponsorship emails. Include: 1) How to open the email addressing key contacts, 2) Specific sponsorship asks based on the company's business (e.g., machining services for car parts, software for simulations), 3) Talking points that connect their products/services to STEM education and racing innovation, 4) How the partnership benefits both parties in the context of student engineering projects. Make suggestions concrete and actionable and give specific information about any companies being asked with context. Return JSON only.",
     required_shape: {
       summary: "string",
       sector: "string",
@@ -1818,39 +1846,70 @@ async function maybeRefineWithGemini(researchDraft) {
     input: researchDraft
   };
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-      runtimeSecrets.geminiModel
-    )}:generateContent?key=${encodeURIComponent(runtimeSecrets.geminiApiKey)}`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json; charset=utf-8"
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: JSON.stringify(prompt) }]
-          }
-        ],
-        generationConfig: {
-          temperature: 0.2,
-          responseMimeType: "application/json"
-        }
-      }),
-      signal: AbortSignal.timeout(15000)
+  if (useOllama) {
+    try {
+      const response = await fetch(`${ollamaEndpoint}/api/generate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json; charset=utf-8"
+        },
+        body: JSON.stringify({
+          model: ollamaModel,
+          prompt: `${prompt.task}\n\nInput data:\n${JSON.stringify(prompt.input)}\n\nRespond with ONLY valid JSON matching this structure: ${JSON.stringify(prompt.required_shape)}`,
+          stream: false,
+          temperature: 0.2
+        }),
+        signal: AbortSignal.timeout(30000)
+      });
+
+      if (!response.ok) {
+        throw new Error(`Ollama request failed (${response.status}).`);
+      }
+
+      const payload = await response.json();
+      const text = payload.response || "";
+      return safeJsonParse(text);
+    } catch (error) {
+      console.error("Ollama refinement failed:", error.message);
+      return null;
     }
-  );
+  } else {
+    // Original Gemini flow
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+        runtimeSecrets.geminiModel
+      )}:generateContent?key=${encodeURIComponent(runtimeSecrets.geminiApiKey)}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json; charset=utf-8"
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: "user",
+              parts: [{ text: JSON.stringify(prompt) }]
+            }
+          ],
+          generationConfig: {
+            temperature: 0.2,
+            responseMimeType: "application/json"
+          }
+        }),
+        signal: AbortSignal.timeout(15000)
+      }
+    );
 
-  if (!response.ok) {
-    throw new Error(`Gemini research request failed (${response.status}).`);
+    if (!response.ok) {
+      throw new Error(`Gemini research request failed (${response.status}).`);
+    }
+
+    const payload = await response.json();
+    const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("") || "";
+    return safeJsonParse(text);
   }
-
-  const payload = await response.json();
-  const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("") || "";
-  return safeJsonParse(text);
 }
+
 
 async function researchCompanyWebsite({
   companyName = "",
@@ -2388,6 +2447,12 @@ async function handleRequest(request, response) {
     } catch (error) {
       sendJson(response, 400, { error: error.message });
     }
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/config.js") {
+    response.writeHead(200, { "Content-Type": "application/javascript; charset=utf-8" });
+    response.end(getRuntimeConfigScript());
     return;
   }
 
