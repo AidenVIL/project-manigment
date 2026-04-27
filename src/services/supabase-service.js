@@ -57,9 +57,20 @@ async function request(path, options = {}) {
   return response.json();
 }
 
+async function testConnection() {
+  if (!isSupabaseConfigured()) {
+    throw new Error("Supabase is not configured.");
+  }
+
+  await request("workspace_users?select=id&limit=1");
+}
+
 export const supabaseService = {
   isReady() {
     return isSupabaseConfigured();
+  },
+  async testConnection() {
+    return testConnection();
   },
   async list(tableName, query = "select=*") {
     return request(`${tableName}?${query}`);

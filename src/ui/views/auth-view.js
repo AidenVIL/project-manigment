@@ -1,7 +1,25 @@
 import { escapeHtml } from "../../utils/formatters.js";
 
-export function renderAuthView({ config, loginError, mode = "login", setupUsername = "" }) {
+export function renderAuthView({ config, loginError, mode = "login", setupUsername = "", supabaseConnection = {} }) {
   const isSetup = mode === "setup";
+  const statusLabel =
+    supabaseConnection.status === "ok"
+      ? "Supabase connected"
+      : supabaseConnection.status === "pending"
+      ? "Checking Supabase"
+      : supabaseConnection.status === "error"
+      ? "Supabase error"
+      : supabaseConnection.status === "missing"
+      ? "Supabase not configured"
+      : "Supabase status";
+  const statusClass =
+    supabaseConnection.status === "ok"
+      ? "badge badge--success"
+      : supabaseConnection.status === "pending"
+      ? "badge badge--info"
+      : supabaseConnection.status === "error"
+      ? "badge badge--danger"
+      : "badge badge--muted";
 
   return `
     <main class="auth-page">
@@ -27,6 +45,18 @@ export function renderAuthView({ config, loginError, mode = "login", setupUserna
         </div>
         <form id="login-form" class="auth-form">
           <input type="hidden" name="mode" value="${isSetup ? "setup" : "login"}" />
+          ${
+            supabaseConnection.status && supabaseConnection.status !== "idle"
+              ? `
+                <div class="auth-status-row">
+                  <span class="${statusClass}">${escapeHtml(statusLabel)}</span>
+                  <span class="auth-status-description">${escapeHtml(
+                    supabaseConnection.message || "Supabase connection status is unavailable."
+                  )}</span>
+                </div>
+              `
+              : ""
+          }
           <label class="field">
             <span>Username</span>
             <input

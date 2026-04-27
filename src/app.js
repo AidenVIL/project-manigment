@@ -14,6 +14,7 @@ import { draftService } from "./services/draft-service.js";
 import { gmailService } from "./services/gmail-service.js";
 import { companyResearchService } from "./services/company-research-service.js";
 import { templateService } from "./services/template-service.js";
+import { supabaseService } from "./services/supabase-service.js";
 import { analyzeEmailWriting } from "./services/writing-coach-service.js";
 import { renderCompanyModal } from "./ui/components/modal.js";
 import { renderFollowUpWorkflowModal } from "./ui/components/follow-up-workflow-modal.js";
@@ -148,6 +149,11 @@ const state = {
   auth: {
     mode: "login",
     setupUsername: ""
+  },
+  supabaseConnection: {
+    checking: false,
+    status: "idle",
+    message: ""
   },
   calendar: {
     referenceDate: new Date().toISOString().slice(0, 10),
@@ -705,7 +711,9 @@ function extractCompanyQueryForAssistant(question = "") {
 
   const directPatterns = [
     /(?:about|research|summari[sz]e|summary on|info on)\s+([a-z0-9&.,' -]{3,})$/i,
-    /(?:company|brand)\s+([a-z0-9&.,' -]{3,})$/i
+    /(?:company|brand)\s+([a-z0-9&.,' -]{3,})$/i,
+    /(?:does|do|can|will)\s+(.+?)\s+(?:offer|provide|have|sponsor|support)\s+(?:sponsorships?|sponsorship|sponsorship opportunities|partners?|sponsor|support)(?:\?|\s*)$/i,
+    /(?:does|do|can|will)\s+(.+?)\s+(?:sponsor|support)\b/i
   ];
 
   for (const pattern of directPatterns) {
@@ -716,7 +724,7 @@ function extractCompanyQueryForAssistant(question = "") {
   }
 
   const cleaned = text
-    .replace(/\b(?:tell me|about|research|summarise|summarize|company|brand|please|for)\b/gi, " ")
+    .replace(/\b(?:tell me|about|research|summarise|summarize|company|brand|please|for|does|do|can|will|offer|provide|have|sponsor|support|sponsorships?|sponsorship|sponsorship opportunities|partners?)\b/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
   return cleaned.length >= 3 ? cleaned : "";
@@ -1384,7 +1392,8 @@ function renderApp() {
       config: APP_CONFIG,
       loginError: state.loginError,
       mode: state.auth.mode,
-      setupUsername: state.auth.setupUsername
+      setupUsername: state.auth.setupUsername,
+      supabaseConnection: state.supabaseConnection
     });
     return;
   }
@@ -1467,10 +1476,47 @@ async function init() {
     await authService.signOut();
     state.loading = false;
     renderApp();
+    await refreshSupabaseConnectionStatus();
     return;
   }
 
   await loadAppData();
+}
+
+async function refreshSupabaseConnectionStatus() {
+  state.supabaseConnection = {
+    checking: true,
+    status: "pending",
+    message: "Checking Supabase connection..."
+  };
+  renderApp();
+
+  if (!isSupabaseConfigured()) {
+    state.supabaseConnection = {
+      checking: false,
+      status: "missing",
+      message: "Supabase is not configured. The app will use demo mode until keys are set."
+    };
+    renderApp();
+    return;
+  }
+
+  try {
+    await supabaseService.testConnection();
+    state.supabaseConnection = {
+      checking: false,
+      status: "ok",
+      message: "Supabase API is reachable with the configured keys."
+    };
+  } catch (error) {
+    state.supabaseConnection = {
+      checking: false,
+      status: "error",
+      message: error.message || "Unable to reach Supabase with the configured keys."
+    };
+  }
+
+  renderApp();
 }
 
 async function loadMailboxStatus() {

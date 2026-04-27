@@ -2040,6 +2040,20 @@ textarea {
   align-content: center;
 }
 
+.auth-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.auth-status-description {
+  color: var(--muted);
+  font-size: 0.94rem;
+  line-height: 1.5;
+}
+
 .auth-points {
   margin: 1rem 0 0;
   padding-left: 1.1rem;
