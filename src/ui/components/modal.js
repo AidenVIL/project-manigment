@@ -107,7 +107,7 @@ function renderResearchCandidateList(candidates = [], action, buttonLabel = "Sel
   `;
 }
 
-function renderSavedContactsList(contacts = []) {
+function renderSavedContactsList(contacts = [], selectedId = "") {
   if (!contacts.length) {
     return `<p class="research-empty">No saved contacts yet. Add from Found Emails on the right.</p>`;
   }
@@ -117,7 +117,7 @@ function renderSavedContactsList(contacts = []) {
       ${contacts
         .map(
           (contact, index) => `
-            <article class="finder-item finder-item--stacked ${index === 0 ? "finder-item--active" : ""}">
+            <article class="finder-item finder-item--stacked ${contact.id === selectedId ? "finder-item--active" : ""}">
               <div class="finder-item__meta">
                 <strong>${escapeHtml(contact.name || contact.email || "Contact")}</strong>
                 <span>${escapeHtml(contact.role || "No role set")}</span>
@@ -125,6 +125,7 @@ function renderSavedContactsList(contacts = []) {
                 ${index === 0 ? `<small class="finder-item__badge">Primary</small>` : ""}
               </div>
               <div class="finder-actions finder-actions--inline">
+                <button type="button" class="ghost-button primary-button--compact" data-action="select-modal-contact" data-id="${escapeHtml(contact.id)}">View</button>
                 ${
                   index !== 0
                     ? `<button type="button" class="ghost-button primary-button--compact" data-action="set-primary-contact" data-id="${escapeHtml(contact.id)}">Set Primary</button>`
@@ -271,6 +272,11 @@ export function renderCompanyModal(modalState, company) {
     : isIndustryMode
       ? "Search by industry first, then use the extra clue field to bias the shortlist toward the right company."
       : "Search by company name, then rank the likely matches by your context before scanning one.";
+  const savedContacts = Array.isArray(company.contacts) ? company.contacts : [];
+  const selectedModalContact =
+    savedContacts.find((contact) => contact.id === modalState.selectedModalContactId) ||
+    savedContacts[0] ||
+    null;
 
   return `
     <div class="modal-backdrop ${isOpen ? "is-open" : ""}" aria-hidden="${isOpen ? "false" : "true"}">
@@ -304,6 +310,20 @@ export function renderCompanyModal(modalState, company) {
                     value="${escapeHtml(company.website || "")}"
                   />
                 </label>
+                <label class="field field--span-2">
+                  <span>Add Contact Email</span>
+                  <div class="finder-actions finder-actions--inline">
+                    <input
+                      name="contactDraftEmail"
+                      type="email"
+                      placeholder="name@company.com"
+                      value="${escapeHtml(modalState.contactDraftEmail || "")}"
+                    />
+                    <button type="button" class="primary-button primary-button--compact" data-action="add-contact-email">
+                      Add Email
+                    </button>
+                  </div>
+                </label>
               </div>
             </section>
             <section class="finder-summary finder-summary--selected field--span-2">
@@ -311,20 +331,40 @@ export function renderCompanyModal(modalState, company) {
                 <strong>Saved Contacts For This Company</strong>
                 <span>Add as many as you want from the finder list on the right.</span>
               </div>
-              ${renderSavedContactsList(company.contacts || [])}
+              ${renderSavedContactsList(savedContacts, selectedModalContact?.id || "")}
             </section>
-            <label class="field">
-              <span>Contact Name</span>
-              <input name="contactName" value="${escapeHtml(company.contactName || "")}" />
-            </label>
-            <label class="field">
-              <span>Contact Role</span>
-              <input name="contactRole" value="${escapeHtml(company.contactRole || "")}" />
-            </label>
-            <label class="field">
-              <span>Contact Email</span>
-              <input name="contactEmail" type="email" value="${escapeHtml(company.contactEmail || "")}" />
-            </label>
+            <section class="finder-summary finder-summary--selected field--span-2">
+              <div class="finder-section__head">
+                <strong>Selected Contact Details</strong>
+                <span>Choose a contact from the list, then edit name/role/context here.</span>
+              </div>
+              ${
+                selectedModalContact
+                  ? `
+                    <div class="form-grid form-grid--compact">
+                      <label class="field">
+                        <span>Name</span>
+                        <input name="selectedContactName" value="${escapeHtml(selectedModalContact.name || "")}" />
+                      </label>
+                      <label class="field">
+                        <span>Role</span>
+                        <input name="selectedContactRole" value="${escapeHtml(selectedModalContact.role || "")}" />
+                      </label>
+                      <label class="field field--span-2">
+                        <span>Email</span>
+                        <input value="${escapeHtml(selectedModalContact.email || "")}" disabled />
+                      </label>
+                      <label class="field field--span-2">
+                        <span>Extra Context</span>
+                        <textarea name="selectedContactContext" rows="2">${escapeHtml(
+                          selectedModalContact.matchReason || ""
+                        )}</textarea>
+                      </label>
+                    </div>
+                  `
+                  : `<p class="research-empty">No contact selected yet. Add one above or pick from finder results.</p>`
+              }
+            </section>
             <label class="field">
               <span>Status</span>
               <select name="status">${renderOptions(companyStatusOptions, company.status)}</select>

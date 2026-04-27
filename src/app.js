@@ -112,6 +112,8 @@ const state = {
     finderCompanyName: "",
     finderWebsite: "",
     finderContext: "",
+    contactDraftEmail: "",
+    selectedModalContactId: "",
     selectedCompanyCandidateId: "",
     appliedCompanyCandidateId: "",
     completedResearchEntries: []
@@ -384,6 +386,8 @@ function resetModalResearchState() {
   state.modal.finderCompanyName = "";
   state.modal.finderWebsite = "";
   state.modal.finderContext = "";
+  state.modal.contactDraftEmail = "";
+  state.modal.selectedModalContactId = "";
   state.modal.selectedCompanyCandidateId = "";
   state.modal.appliedCompanyCandidateId = "";
   state.modal.completedResearchEntries = [];
@@ -568,6 +572,7 @@ function setPrimaryContactById(contactId = "") {
     contactRole: primary.role || "",
     contactEmail: primary.email || ""
   });
+  state.modal.selectedModalContactId = primary.id || "";
 }
 
 function removeContactById(contactId = "") {
@@ -580,6 +585,75 @@ function removeContactById(contactId = "") {
     contactName: nextPrimary.name || "",
     contactRole: nextPrimary.role || "",
     contactEmail: nextPrimary.email || ""
+  });
+  state.modal.selectedModalContactId = nextContacts[0]?.id || "";
+}
+
+function addContactEmailToDraft(rawEmail = "") {
+  const email = String(rawEmail || "").trim();
+  if (!email) {
+    return { ok: false, reason: "empty" };
+  }
+
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailPattern.test(email)) {
+    return { ok: false, reason: "invalid" };
+  }
+
+  const contacts = Array.isArray(state.modal.draft.contacts) ? [...state.modal.draft.contacts] : [];
+  const existing = contacts.find((entry) => String(entry.email || "").trim().toLowerCase() === email.toLowerCase());
+  if (existing) {
+    state.modal.selectedModalContactId = existing.id;
+    return { ok: false, reason: "exists" };
+  }
+
+  const newContact = {
+    id: crypto.randomUUID(),
+    name: "",
+    role: "",
+    email,
+    source: "manual",
+    matchReason: "Added manually"
+  };
+  contacts.push(newContact);
+
+  const currentPrimary = contacts[0] || newContact;
+  state.modal.draft = createCompany({
+    ...state.modal.draft,
+    contacts,
+    contactName: state.modal.draft.contactName || currentPrimary.name || "",
+    contactRole: state.modal.draft.contactRole || currentPrimary.role || "",
+    contactEmail: state.modal.draft.contactEmail || currentPrimary.email || ""
+  });
+  state.modal.selectedModalContactId = newContact.id;
+  state.modal.contactDraftEmail = "";
+  return { ok: true };
+}
+
+function updateSelectedModalContactField(field, value) {
+  const contacts = Array.isArray(state.modal.draft.contacts) ? [...state.modal.draft.contacts] : [];
+  if (!contacts.length) {
+    return;
+  }
+
+  const selectedId = state.modal.selectedModalContactId || contacts[0]?.id;
+  const index = contacts.findIndex((entry) => entry.id === selectedId);
+  if (index < 0) {
+    return;
+  }
+
+  contacts[index] = {
+    ...contacts[index],
+    [field]: String(value || "")
+  };
+
+  const primary = contacts[0] || { name: "", role: "", email: "" };
+  state.modal.draft = createCompany({
+    ...state.modal.draft,
+    contacts,
+    contactName: primary.name || "",
+    contactRole: primary.role || "",
+    contactEmail: primary.email || ""
   });
 }
 
@@ -1476,6 +1550,8 @@ function openCompanyModal(companyId = "") {
   state.modal.researchMode = existingCompany.website ? "website" : "company";
   state.modal.finderCompanyName = existingCompany.companyName || "";
   state.modal.finderWebsite = existingCompany.website || "";
+  state.modal.selectedModalContactId = existingCompany.contacts?.[0]?.id || "";
+  state.modal.contactDraftEmail = "";
   renderApp();
 }
 
@@ -2500,6 +2576,30 @@ root.addEventListener("click", async (event) => {
       showToast("Primary contact updated.");
       return;
     }
+    case "select-modal-contact": {
+      state.modal.selectedModalContactId = id;
+      renderAppPreserveModalScroll();
+      return;
+    }
+    case "add-contact-email": {
+      const result = addContactEmailToDraft(state.modal.contactDraftEmail);
+      if (result.ok) {
+        renderAppPreserveModalScroll();
+        showToast("Contact email added.");
+        return;
+      }
+      if (result.reason === "invalid") {
+        showToast("Add a valid email address.");
+        return;
+      }
+      if (result.reason === "exists") {
+        renderAppPreserveModalScroll();
+        showToast("That email is already in contacts.");
+        return;
+      }
+      showToast("Enter an email first.");
+      return;
+    }
     case "remove-contact": {
       removeContactById(id);
       renderAppPreserveModalScroll();
@@ -2782,6 +2882,26 @@ root.addEventListener("input", (event) => {
     }
 
     if (name) {
+      if (name === "contactDraftEmail") {
+        state.modal.contactDraftEmail = value;
+        return;
+      }
+
+      if (name === "selectedContactName") {
+        updateSelectedModalContactField("name", value);
+        return;
+      }
+
+      if (name === "selectedContactRole") {
+        updateSelectedModalContactField("role", value);
+        return;
+      }
+
+      if (name === "selectedContactContext") {
+        updateSelectedModalContactField("matchReason", value);
+        return;
+      }
+
       if (name === "contactName" || name === "contactRole" || name === "contactEmail") {
         const contacts = Array.isArray(state.modal.draft.contacts) ? [...state.modal.draft.contacts] : [];
         const primary = {
