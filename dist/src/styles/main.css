@@ -1574,6 +1574,49 @@ textarea {
   min-height: 72px;
 }
 
+.scrut-car-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.scrut-car-tab {
+  border: 1px solid var(--border-primary);
+  border-radius: 12px;
+  padding: 0.5rem 0.7rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: #fff;
+}
+
+.scrut-car-tab.is-active {
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 2px rgba(50, 206, 50, 0.12);
+}
+
+.table-wrap {
+  overflow: auto;
+}
+
+.scrut-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 820px;
+}
+
+.scrut-table th,
+.scrut-table td {
+  text-align: left;
+  padding: 0.55rem 0.5rem;
+  border-bottom: 1px solid var(--border-primary);
+  vertical-align: middle;
+}
+
+.scrut-table td input {
+  width: 120px;
+}
+
 .thanks-grid {
   display: grid;
   grid-template-columns: minmax(320px, 420px) 1fr;

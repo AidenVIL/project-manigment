@@ -45,6 +45,43 @@ const PREVIEW_COMPANY = createCompany({
   nextFollowUp: new Date().toISOString().slice(0, 10)
 });
 
+function createScrutineeringCar(name = "Car A") {
+  return {
+    id: crypto.randomUUID(),
+    name,
+    checks: [
+      { id: "dimensions", label: "Car dimensions checked against limits", done: false, notes: "" },
+      { id: "mass", label: "Mass within minimum/maximum constraints", done: false, notes: "" },
+      { id: "wheels", label: "Wheel/axle setup legal and secure", done: false, notes: "" },
+      { id: "body", label: "Body shell clearances and legality confirmed", done: false, notes: "" },
+      { id: "aero", label: "Aero elements legal and safely attached", done: false, notes: "" },
+      { id: "co2", label: "CO₂ cartridge chamber and fit checked", done: false, notes: "" },
+      { id: "finish", label: "Surface finish and safety standards met", done: false, notes: "" },
+      { id: "docs", label: "All required documentation complete", done: false, notes: "" }
+    ],
+    regulations: [
+      { id: "t3_3_width", code: "T3.3", label: "Total width", min: 65.0, max: 85.0, unit: "mm", penalty: "10 pts / mm", actual: "" },
+      { id: "t3_4_height", code: "T3.4", label: "Total height (with full 8g cartridge)", min: null, max: 65.0, unit: "mm", penalty: "10 pts / mm", actual: "" },
+      { id: "t3_6_weight", code: "T3.6", label: "Total weight (without cartridge)", min: 48.0, max: null, unit: "g", penalty: "10 pts / g", actual: "" },
+      { id: "t3_7_clearance", code: "T3.7", label: "Track clearance", min: 1.5, max: null, unit: "mm", penalty: "10 pts / mm", actual: "" },
+      { id: "t5_1_diameter", code: "T5.1", label: "Cartridge chamber diameter", min: 18.0, max: 18.5, unit: "mm", penalty: "5 pts", actual: "" },
+      { id: "t5_2_height", code: "T5.2", label: "Cartridge rear centre height from track", min: 30.0, max: 40.0, unit: "mm", penalty: "5 pts / mm", actual: "" },
+      { id: "t5_3_depth", code: "T5.3", label: "Cartridge chamber depth", min: 45.0, max: 58.0, unit: "mm", penalty: "5 pts", actual: "" },
+      { id: "t5_5_zone", code: "T5.5", label: "Chamber safety zone thickness", min: 3.0, max: null, unit: "mm", penalty: "10 pts", actual: "" },
+      { id: "t4_4_4_halo", code: "T4.4.4", label: "Halo circular notch centre height", min: 33.0, max: 35.0, unit: "mm", penalty: "5 pts", actual: "" }
+    ],
+    tolerance: {
+      nominal: 0,
+      actual: 0,
+      plusMinus: 0.1
+    },
+    density: {
+      massG: 0,
+      volumeMm3: 0
+    }
+  };
+}
+
 const workspaceViews = [
   {
     id: "overview",
@@ -202,25 +239,8 @@ const state = {
     messages: []
   },
   scrutineering: {
-    checks: [
-      { id: "dimensions", label: "Car dimensions checked against limits", done: false, notes: "" },
-      { id: "mass", label: "Mass within minimum/maximum constraints", done: false, notes: "" },
-      { id: "wheels", label: "Wheel/axle setup legal and secure", done: false, notes: "" },
-      { id: "body", label: "Body shell clearances and legality confirmed", done: false, notes: "" },
-      { id: "aero", label: "Aero elements legal and safely attached", done: false, notes: "" },
-      { id: "co2", label: "CO₂ cartridge chamber and fit checked", done: false, notes: "" },
-      { id: "finish", label: "Surface finish and safety standards met", done: false, notes: "" },
-      { id: "docs", label: "All required documentation complete", done: false, notes: "" }
-    ],
-    tolerance: {
-      nominal: 0,
-      actual: 0,
-      plusMinus: 0.1
-    },
-    density: {
-      massG: 0,
-      volumeMm3: 0
-    }
+    cars: [],
+    activeCarId: ""
   },
   thankyou: {
     recipientName: "Your Supporter",
@@ -243,6 +263,26 @@ let companySearchFocusSnapshot = null;
 
 function clone(value) {
   return structuredClone(value);
+}
+
+function ensureScrutineeringState() {
+  if (!Array.isArray(state.scrutineering.cars) || !state.scrutineering.cars.length) {
+    const starter = createScrutineeringCar("Car A");
+    state.scrutineering.cars = [starter];
+    state.scrutineering.activeCarId = starter.id;
+    return;
+  }
+  if (!state.scrutineering.cars.some((car) => car.id === state.scrutineering.activeCarId)) {
+    state.scrutineering.activeCarId = state.scrutineering.cars[0].id;
+  }
+}
+
+function getActiveScrutineeringCar() {
+  ensureScrutineeringState();
+  return (
+    state.scrutineering.cars.find((car) => car.id === state.scrutineering.activeCarId) ||
+    state.scrutineering.cars[0]
+  );
 }
 
 function isLiveMode() {
@@ -906,23 +946,27 @@ function showToast(message) {
 }
 
 function updateScrutineeringField(path, value) {
+  const active = getActiveScrutineeringCar();
   const [group, key] = String(path || "").split(".");
-  if (!group || !key || !state.scrutineering[group]) {
+  if (!group || !key || !active[group]) {
     return;
   }
-  state.scrutineering[group][key] = Number(value || 0);
+  active[group][key] = Number(value || 0);
 }
 
 function updateScrutineeringCheckNote(id, note) {
-  state.scrutineering.checks = state.scrutineering.checks.map((item) =>
-    item.id === id ? { ...item, notes: note } : item
-  );
+  const active = getActiveScrutineeringCar();
+  active.checks = active.checks.map((item) => (item.id === id ? { ...item, notes: note } : item));
 }
 
 function toggleScrutineeringCheck(id) {
-  state.scrutineering.checks = state.scrutineering.checks.map((item) =>
-    item.id === id ? { ...item, done: !item.done } : item
-  );
+  const active = getActiveScrutineeringCar();
+  active.checks = active.checks.map((item) => (item.id === id ? { ...item, done: !item.done } : item));
+}
+
+function updateScrutineeringRegActual(id, value) {
+  const active = getActiveScrutineeringCar();
+  active.regulations = active.regulations.map((item) => (item.id === id ? { ...item, actual: value } : item));
 }
 
 function consumeOauthFeedback() {
@@ -1432,7 +1476,7 @@ function renderShell() {
               : activeView.id === "intelligence"
                 ? renderAtomicIntelligenceView(state.intelligence)
                 : activeView.id === "scrutineering"
-                  ? renderScrutineeringView(state.scrutineering)
+                  ? renderScrutineeringView(state.scrutineering, getActiveScrutineeringCar())
                   : renderThankYouCardsView(state.thankyou);
 
   return `
@@ -1708,6 +1752,7 @@ function renderApp() {
     return;
   }
 
+  ensureScrutineeringState();
   root.innerHTML = renderShell();
   drawThankYouCard();
 }
@@ -2804,6 +2849,20 @@ root.addEventListener("click", async (event) => {
       toggleScrutineeringCheck(id);
       renderApp();
       return;
+    case "add-scrut-car": {
+      ensureScrutineeringState();
+      const nextLabel = `Car ${String.fromCharCode(65 + state.scrutineering.cars.length)}`;
+      const car = createScrutineeringCar(nextLabel);
+      state.scrutineering.cars.push(car);
+      state.scrutineering.activeCarId = car.id;
+      renderApp();
+      showToast(`${nextLabel} added.`);
+      return;
+    }
+    case "select-scrut-car":
+      state.scrutineering.activeCarId = id;
+      renderApp();
+      return;
     case "download-thankyou-png": {
       const canvas = root.querySelector("#thankyou-card-canvas");
       if (!canvas) {
@@ -3272,8 +3331,20 @@ root.addEventListener("input", (event) => {
     return;
   }
 
+  if (event.target.id === "scrut-car-name") {
+    const active = getActiveScrutineeringCar();
+    active.name = event.target.value || "Untitled Car";
+    return;
+  }
+
   if (event.target.dataset.scrutNote) {
     updateScrutineeringCheckNote(event.target.dataset.scrutNote, event.target.value);
+    return;
+  }
+
+  if (event.target.dataset.scrutReg) {
+    updateScrutineeringRegActual(event.target.dataset.scrutReg, event.target.value);
+    renderApp();
     return;
   }
 
