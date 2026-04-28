@@ -245,7 +245,8 @@ const state = {
   thankyou: {
     recipientName: "Your Supporter",
     donationAmount: "£25",
-    message: "Thank you for supporting Atomic. Your donation helps us design, test, and race at our best.",
+    message:
+      "Thank you for supporting Atomic. Your contribution directly helps fund the engineering, testing, and development behind our race car as we prepare to compete at the highest level. We greatly appreciate your trust and support in helping drive our journey forward.",
     fromName: "Atomic Team",
     fromRole: "Partnerships Lead"
   }
@@ -1595,18 +1596,8 @@ function renderShell() {
   `;
 }
 
-function drawThankYouCard() {
-  const canvas = root.querySelector("#thankyou-card-canvas");
-  if (!canvas) {
-    return;
-  }
-
-  const ctx = canvas.getContext("2d");
-  if (!ctx) {
-    return;
-  }
-
-  const model = state.thankyou;
+function paintThankYouCard(ctx, model, logo = null) {
+  const canvas = ctx.canvas;
   const w = canvas.width;
   const h = canvas.height;
 
@@ -1626,13 +1617,20 @@ function drawThankYouCard() {
   ctx.fill();
   ctx.globalAlpha = 1;
 
+  if (logo && logo.complete) {
+    const logoWidth = 120;
+    const logoHeight = 120;
+    ctx.drawImage(logo, 72, 72, logoWidth, logoHeight);
+  }
+
   ctx.fillStyle = "#d8ffd2";
   ctx.font = "600 24px Roobert, Arial, sans-serif";
-  ctx.fillText("ATOMIC", 72, 88);
+  const titleX = logo ? 72 + 120 + 24 : 72;
+  ctx.fillText("ATOMIC", titleX, 88);
 
   ctx.fillStyle = "#ffffff";
   ctx.font = "700 58px Roobert, Arial, sans-serif";
-  ctx.fillText("Thank You", 72, 190);
+  ctx.fillText("Thank You", titleX, 190);
 
   ctx.font = "500 34px Roobert, Arial, sans-serif";
   ctx.fillStyle = "#c5ffd6";
@@ -1661,8 +1659,8 @@ function drawThankYouCard() {
   if (line) {
     lines.push(line);
   }
-  lines.slice(0, 4).forEach((ln, idx) => {
-    ctx.fillText(ln, 72, 380 + idx * 42);
+  lines.slice(0, 6).forEach((ln, idx) => {
+    ctx.fillText(ln, 72, 380 + idx * 38);
   });
 
   ctx.fillStyle = "#d8ffd2";
@@ -1671,6 +1669,30 @@ function drawThankYouCard() {
   ctx.font = "400 24px Roobert, Arial, sans-serif";
   ctx.fillStyle = "#b7f7c8";
   ctx.fillText(model.fromRole || "Partnerships", 72, h - 72);
+}
+
+function drawThankYouCard() {
+  const canvas = root.querySelector("#thankyou-card-canvas");
+  if (!canvas) {
+    return;
+  }
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    return;
+  }
+
+  const model = state.thankyou;
+  paintThankYouCard(ctx, model);
+
+  const logo = new Image();
+  logo.src = APP_CONFIG.logoPath;
+  logo.onload = () => {
+    paintThankYouCard(ctx, model, logo);
+  };
+  logo.onerror = () => {
+    paintThankYouCard(ctx, model);
+  };
 }
 
 function renderAssistantWidget() {
