@@ -3896,6 +3896,19 @@ root.addEventListener("submit", async (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
+  // Auto-focus password field when Enter is pressed on username field (if password is empty)
+  if (event.key === "Enter" && event.target.classList.contains("auth-username-input")) {
+    const form = event.target.closest("form");
+    if (form) {
+      const passwordInput = form.querySelector(".auth-password-input");
+      if (passwordInput && !passwordInput.value) {
+        event.preventDefault();
+        passwordInput.focus();
+        return;
+      }
+    }
+  }
+
   if (event.key === "Escape" && currentLayoutDrag) {
     endLayoutDrag();
     return;
