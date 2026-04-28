@@ -52,15 +52,17 @@ export function renderScrutineeringView(scrutState, activeCar) {
       const pass = hasActual ? minOk && maxOk : null;
       const status = pass === null ? "Pending" : pass ? "PASS" : "FAIL";
       const statusClass = pass === null ? "muted" : pass ? "success" : "danger";
-      const limits = `${reg.min ?? "-"} to ${reg.max ?? "-"}`;
       return `
         <tr>
-          <td><strong>${escapeHtml(reg.code)}</strong></td>
-          <td>${escapeHtml(reg.label)}</td>
-          <td>${escapeHtml(limits)} ${escapeHtml(reg.unit || "")}</td>
-          <td><input type="number" step="any" data-scrut-reg="${escapeHtml(reg.id)}" value="${escapeHtml(String(reg.actual ?? ""))}" /></td>
+          <td><input type="text" class="scrut-table-input" placeholder="Code" data-scrut-reg-field="${escapeHtml(reg.id)}" data-scrut-field-name="code" value="${escapeHtml(reg.code || "")}" /></td>
+          <td><input type="text" class="scrut-table-input" placeholder="Measure" data-scrut-reg-field="${escapeHtml(reg.id)}" data-scrut-field-name="label" value="${escapeHtml(reg.label || "")}" /></td>
+          <td><input type="number" class="scrut-table-input" step="any" placeholder="Min" data-scrut-reg-field="${escapeHtml(reg.id)}" data-scrut-field-name="min" value="${escapeHtml(String(reg.min ?? ""))}" /></td>
+          <td><input type="number" class="scrut-table-input" step="any" placeholder="Max" data-scrut-reg-field="${escapeHtml(reg.id)}" data-scrut-field-name="max" value="${escapeHtml(String(reg.max ?? ""))}" /></td>
+          <td><input type="text" class="scrut-table-input" placeholder="Unit" data-scrut-reg-field="${escapeHtml(reg.id)}" data-scrut-field-name="unit" value="${escapeHtml(reg.unit || "")}" /></td>
+          <td><input type="number" class="scrut-table-input" step="any" data-scrut-reg-field="${escapeHtml(reg.id)}" data-scrut-field-name="actual" value="${escapeHtml(String(reg.actual ?? ""))}" /></td>
           <td><span class="badge badge--${statusClass}">${status}</span></td>
-          <td>${escapeHtml(reg.penalty || "-")}</td>
+          <td><input type="text" class="scrut-table-input" placeholder="Penalty" data-scrut-reg-field="${escapeHtml(reg.id)}" data-scrut-field-name="penalty" value="${escapeHtml(reg.penalty || "")}" /></td>
+          <td><button type="button" class="danger-button" data-action="delete-scrut-rule" data-id="${escapeHtml(reg.id)}">Delete</button></td>
         </tr>
       `;
     })
@@ -109,12 +111,27 @@ export function renderScrutineeringView(scrutState, activeCar) {
         </div>
         <div class="scrut-right">
           <article class="panel">
-            <span class="eyebrow">Regulations Extract</span>
-            <h3>Technical limits (SRWF26)</h3>
+            <div class="panel-header">
+              <div>
+                <span class="eyebrow">Regulations Extract</span>
+                <h3>Technical limits (SRWF26)</h3>
+              </div>
+              <button type="button" class="secondary-button" data-action="add-scrut-rule">Add Rule</button>
+            </div>
             <div class="table-wrap">
               <table class="scrut-table">
                 <thead>
-                  <tr><th>Rule</th><th>Measure</th><th>Limits</th><th>Actual</th><th>Status</th><th>Penalty</th></tr>
+                  <tr>
+                    <th>Rule</th>
+                    <th>Measure</th>
+                    <th>Min</th>
+                    <th>Max</th>
+                    <th>Unit</th>
+                    <th>Actual</th>
+                    <th>Status</th>
+                    <th>Penalty</th>
+                    <th>Action</th>
+                  </tr>
                 </thead>
                 <tbody>${regulationRows}</tbody>
               </table>

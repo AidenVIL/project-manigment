@@ -964,9 +964,46 @@ function toggleScrutineeringCheck(id) {
   active.checks = active.checks.map((item) => (item.id === id ? { ...item, done: !item.done } : item));
 }
 
-function updateScrutineeringRegActual(id, value) {
+function updateScrutineeringRegField(id, field, value) {
   const active = getActiveScrutineeringCar();
-  active.regulations = active.regulations.map((item) => (item.id === id ? { ...item, actual: value } : item));
+  active.regulations = active.regulations.map((item) => {
+    if (item.id !== id) {
+      return item;
+    }
+
+    const normalizedValue = field === "min" || field === "max" || field === "actual"
+      ? value === ""
+        ? ""
+        : Number(value)
+      : value;
+
+    return {
+      ...item,
+      [field]: normalizedValue
+    };
+  });
+}
+
+function addScrutineeringRegulation() {
+  const active = getActiveScrutineeringCar();
+  active.regulations = [
+    ...active.regulations,
+    {
+      id: crypto.randomUUID(),
+      code: "",
+      label: "",
+      min: "",
+      max: "",
+      unit: "",
+      penalty: "",
+      actual: ""
+    }
+  ];
+}
+
+function deleteScrutineeringRegulation(id) {
+  const active = getActiveScrutineeringCar();
+  active.regulations = active.regulations.filter((item) => item.id !== id);
 }
 
 function consumeOauthFeedback() {
@@ -2863,6 +2900,18 @@ root.addEventListener("click", async (event) => {
       state.scrutineering.activeCarId = id;
       renderApp();
       return;
+    case "add-scrut-rule":
+      addScrutineeringRegulation();
+      renderApp();
+      showToast("New rule added.");
+      return;
+    case "delete-scrut-rule":
+      if (window.confirm("Delete this rule?")) {
+        deleteScrutineeringRegulation(id);
+        renderApp();
+        showToast("Rule deleted.");
+      }
+      return;
     case "download-thankyou-png": {
       const canvas = root.querySelector("#thankyou-card-canvas");
       if (!canvas) {
@@ -3342,8 +3391,12 @@ root.addEventListener("input", (event) => {
     return;
   }
 
-  if (event.target.dataset.scrutReg) {
-    updateScrutineeringRegActual(event.target.dataset.scrutReg, event.target.value);
+  if (event.target.dataset.scrutRegField && event.target.dataset.scrutFieldName) {
+    updateScrutineeringRegField(
+      event.target.dataset.scrutRegField,
+      event.target.dataset.scrutFieldName,
+      event.target.value
+    );
     renderApp();
     return;
   }
