@@ -1524,6 +1524,17 @@ textarea {
   text-decoration-color: #ff5ca7;
 }
 
+.writing-coach__assist {
+  display: grid;
+  gap: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px dashed rgba(22, 49, 26, 0.15);
+}
+
+.writing-coach__assist h4 {
+  margin: 0;
+}
+
 .inspector-toolbar {
   flex-wrap: wrap;
 }

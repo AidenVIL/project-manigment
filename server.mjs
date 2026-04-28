@@ -2379,6 +2379,115 @@ async function generateAtomicIntelligenceAnswer({ question = "", mode = "researc
   };
 }
 
+function stripMarkdownFences(value = "") {
+  return String(value || "").replace(/^```[a-zA-Z]*\s*/i, "").replace(/```$/i, "").trim();
+}
+
+function buildEmailAssistFallback({
+  mode = "first_outreach",
+  companyName = "the company",
+  contactName = "",
+  instruction = ""
+} = {}) {
+  const namedContact = contactName ? `${contactName}` : "there";
+  if (mode === "continue") {
+    return {
+      continuation: `I’d love to share a short, tailored plan for how this partnership could deliver clear value for ${companyName} this season.`,
+      notes: "Continuation generated from your current draft context."
+    };
+  }
+
+  const followUp =
+    mode === "follow_up"
+      ? `Hi ${namedContact},\n\nI hope you're well. I wanted to follow up on my previous message about a potential partnership with Atomic.`
+      : `Hi ${namedContact},\n\nI’m reaching out from Atomic to explore a potential sponsorship partnership with ${companyName}.`;
+
+  const body = `${followUp}\n\nWe’d love to discuss how we can align with your goals and create measurable value through our outreach, STEM engagement, and race season visibility.\n\nIf helpful, I can share a concise sponsorship options overview and suggested next steps.\n\nBest regards,\nAtomic Partnerships`;
+  return {
+    replacementBody: body,
+    subjectSuggestion:
+      mode === "follow_up"
+        ? `Following up: partnership with ${companyName}`
+        : `Partnership opportunity: Atomic x ${companyName}`,
+    notes: instruction ? `Used your instruction: ${instruction}` : "Fallback draft generated."
+  };
+}
+
+async function generateAtomicEmailAssist({
+  mode = "first_outreach",
+  company = {},
+  contact = {},
+  subject = "",
+  html = "",
+  plainText = "",
+  instruction = ""
+} = {}) {
+  const companyName = String(company?.companyName || company?.name || "").trim() || "the company";
+  const contactName = String(contact?.name || "").trim();
+  const contactRole = String(contact?.role || "").trim();
+  const contextSnippet = textSnippet(stripHtml(String(html || "")) || plainText || "", 3000);
+
+  const useOllamaSetting = (process.env.USE_OLLAMA || "auto").toLowerCase();
+  const useOllama = useOllamaSetting === "true" || useOllamaSetting === "auto";
+  const ollamaEndpoint = process.env.OLLAMA_ENDPOINT || "http://localhost:11434";
+  const ollamaModel = process.env.OLLAMA_MODEL || "llama3.1:8b";
+
+  if (useOllama) {
+    try {
+      const prompt = [
+        "You are an elite sponsorship email writing assistant for a STEM racing team.",
+        "Write practical, concise, natural UK-English outreach copy.",
+        "Return STRICT JSON only with keys:",
+        '{"subjectSuggestion":"", "replacementBody":"", "continuation":"", "notes":""}',
+        "Rules:",
+        "- If mode is continue: only fill continuation (1-2 sentences).",
+        "- If mode is first_outreach or follow_up: fill replacementBody as plain text email body.",
+        "- Keep tone professional, warm, and specific.",
+        `Mode: ${mode}`,
+        `Company: ${companyName}`,
+        `Contact name: ${contactName || "unknown"}`,
+        `Contact role: ${contactRole || "unknown"}`,
+        `Current subject: ${subject || "none"}`,
+        `User instruction: ${instruction || "none"}`,
+        `Current draft context: ${contextSnippet || "none"}`
+      ].join("\n");
+
+      const response = await fetch(`${ollamaEndpoint}/api/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify({
+          model: ollamaModel,
+          prompt,
+          stream: false,
+          temperature: 0.3
+        }),
+        signal: AbortSignal.timeout(45000)
+      });
+
+      if (response.ok) {
+        const payload = await response.json();
+        const raw = stripMarkdownFences(String(payload.response || "").trim());
+        const parsed = JSON.parse(raw);
+        return {
+          subjectSuggestion: String(parsed.subjectSuggestion || "").trim(),
+          replacementBody: String(parsed.replacementBody || "").trim(),
+          continuation: String(parsed.continuation || "").trim(),
+          notes: String(parsed.notes || "").trim()
+        };
+      }
+    } catch {
+      // fallback below
+    }
+  }
+
+  return buildEmailAssistFallback({
+    mode,
+    companyName,
+    contactName,
+    instruction
+  });
+}
+
 function encodeBase64Url(value = "") {
   return Buffer.from(value, "utf8")
     .toString("base64")
@@ -2682,6 +2791,28 @@ async function handleRequest(request, response) {
     } catch (error) {
       sendJson(response, 500, {
         error: error.message || "Atomic Intelligence could not complete that request."
+      });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/atomic-intelligence/email-assist") {
+    try {
+      const body = await readJsonBody(request);
+      const mode = String(body.mode || "first_outreach").trim();
+      const result = await generateAtomicEmailAssist({
+        mode,
+        company: body.company || {},
+        contact: body.contact || {},
+        subject: body.subject || "",
+        html: body.html || "",
+        plainText: body.plainText || "",
+        instruction: body.instruction || ""
+      });
+      sendJson(response, 200, result);
+    } catch (error) {
+      sendJson(response, 500, {
+        error: error.message || "Email assist could not complete that request."
       });
     }
     return;

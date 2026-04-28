@@ -387,8 +387,9 @@ function renderSelectedBlockInspector(editor) {
   `;
 }
 
-function renderWritingCoach(preview) {
+function renderWritingCoach(preview, editor) {
   const writing = preview.writing;
+  const aiResult = editor?.aiAssistResult || null;
 
   return `
     <div class="inspector-group">
@@ -424,6 +425,51 @@ function renderWritingCoach(preview) {
                 )
                 .join("")
             : `<div class="empty-inline">No obvious spelling, grammar, or tone issues found right now.</div>`
+        }
+      </div>
+      <div class="writing-coach__assist">
+        <h4>AI Email Assist</h4>
+        <div class="form-grid">
+          <label class="field">
+            <span>Mode</span>
+            <select id="editor-ai-assist-mode">
+              <option value="first_outreach" ${editor?.aiAssistMode === "first_outreach" ? "selected" : ""}>First outreach</option>
+              <option value="follow_up" ${editor?.aiAssistMode === "follow_up" ? "selected" : ""}>Follow-up</option>
+              <option value="continue" ${editor?.aiAssistMode === "continue" ? "selected" : ""}>Continue paragraph</option>
+            </select>
+          </label>
+          <label class="field field--span-2">
+            <span>Instruction (optional)</span>
+            <input id="editor-ai-assist-prompt" value="${escapeHtml(editor?.aiAssistPrompt || "")}" placeholder="e.g. mention STEM outreach and ask for a 15-min call" />
+          </label>
+        </div>
+        <div class="inspector-toolbar">
+          <button type="button" class="ghost-button" data-action="run-editor-ai-assist" ${editor?.aiAssistLoading ? "disabled" : ""}>
+            ${editor?.aiAssistLoading ? "Thinking..." : "Generate with AI"}
+          </button>
+          <button type="button" class="ghost-button" data-action="apply-editor-ai-full-draft" ${aiResult?.replacementBody ? "" : "disabled"}>
+            Apply full draft
+          </button>
+          <button type="button" class="ghost-button" data-action="apply-editor-ai-continuation" ${aiResult?.continuation ? "" : "disabled"}>
+            Append continuation
+          </button>
+        </div>
+        ${
+          editor?.aiAssistError
+            ? `<p class="editor-help">${escapeHtml(editor.aiAssistError)}</p>`
+            : ""
+        }
+        ${
+          aiResult
+            ? `
+              <div class="writing-coach__card">
+                ${aiResult.subjectSuggestion ? `<p><strong>Subject:</strong> ${escapeHtml(aiResult.subjectSuggestion)}</p>` : ""}
+                ${aiResult.replacementBody ? `<p>${escapeHtml(aiResult.replacementBody)}</p>` : ""}
+                ${aiResult.continuation ? `<p><strong>Continuation:</strong> ${escapeHtml(aiResult.continuation)}</p>` : ""}
+                ${aiResult.notes ? `<p class="editor-help">${escapeHtml(aiResult.notes)}</p>` : ""}
+              </div>
+            `
+            : ""
         }
       </div>
     </div>
@@ -560,7 +606,7 @@ export function renderTemplateEditorView({ editor, company, preview, mailboxConn
             <span class="eyebrow">Current Subject</span>
             <p class="editor-help">${escapeHtml(preview.subject)}</p>
           </div>
-          ${renderWritingCoach(preview)}
+          ${renderWritingCoach(preview, editor)}
         </aside>
       </div>
     </main>

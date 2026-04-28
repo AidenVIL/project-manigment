@@ -47,6 +47,37 @@ export const atomicIntelligenceService = {
     }
 
     return response.json();
+  },
+  async assistEmail({
+    mode = "first_outreach",
+    company = {},
+    contact = {},
+    subject = "",
+    html = "",
+    plainText = "",
+    instruction = ""
+  } = {}) {
+    const response = await fetch("/api/atomic-intelligence/email-assist", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8"
+      },
+      body: JSON.stringify({
+        mode,
+        company,
+        contact,
+        subject,
+        html,
+        plainText,
+        instruction
+      })
+    });
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      throw new Error(payload?.error || "Email assist request failed.");
+    }
+
+    return response.json();
   }
 };
-

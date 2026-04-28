@@ -927,6 +927,11 @@ function createEditorState({
     device,
     companyId: resolvedCompanyId,
     selectedContactIds: initialSelectedContactIds,
+    aiAssistMode: "first_outreach",
+    aiAssistPrompt: "",
+    aiAssistLoading: false,
+    aiAssistError: "",
+    aiAssistResult: null,
     companyOptions,
     createdAt,
     lastFocusedTarget
@@ -980,6 +985,92 @@ function buildEditorPreview(editor = state.editor) {
       tokens: preview.tokens
     })
   };
+}
+
+function extractPlainTextFromEditorDesign(design = {}) {
+  const blocks = Array.isArray(design?.blocks) ? design.blocks : [];
+  return blocks
+    .map((block) => String(block?.content?.text || block?.content?.label || "").trim())
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function ensureParagraphTargetBlock() {
+  const selected = findSelectedBlock();
+  if (selected && (selected.type === "paragraph" || selected.type === "heading")) {
+    return selected;
+  }
+
+  const firstParagraph = state.editor?.design?.blocks?.find((block) => block.type === "paragraph");
+  if (firstParagraph) {
+    state.editor.selectedBlockId = firstParagraph.id;
+    return firstParagraph;
+  }
+
+  const added = templateService.createBlockInstance("paragraph");
+  added.content.text = "";
+  state.editor.design.blocks.push(added);
+  state.editor.selectedBlockId = added.id;
+  return added;
+}
+
+async function runEditorAiAssist() {
+  if (!state.editor || state.editor.aiAssistLoading) {
+    return;
+  }
+
+  const company = getEditorCompany(state.editor);
+  const contacts = getCompanyContacts(company);
+  const selectedContact = contacts.find((contact) => (state.editor.selectedContactIds || []).includes(contact.id)) || contacts[0] || {};
+  const preview = buildEditorPreview(state.editor);
+
+  state.editor.aiAssistLoading = true;
+  state.editor.aiAssistError = "";
+  renderApp();
+
+  try {
+    const result = await atomicIntelligenceService.assistEmail({
+      mode: state.editor.aiAssistMode || "first_outreach",
+      company,
+      contact: selectedContact,
+      subject: preview.subject || state.editor.subjectInput || "",
+      html: preview.html || "",
+      plainText: extractPlainTextFromEditorDesign(state.editor.design),
+      instruction: state.editor.aiAssistPrompt || ""
+    });
+
+    state.editor.aiAssistResult = result || null;
+    if (result?.subjectSuggestion) {
+      state.editor.subjectInput = result.subjectSuggestion;
+    }
+  } catch (error) {
+    state.editor.aiAssistError = error.message || "AI assist failed.";
+  } finally {
+    state.editor.aiAssistLoading = false;
+    renderApp();
+  }
+}
+
+function applyEditorAiFullDraft() {
+  if (!state.editor?.aiAssistResult?.replacementBody) {
+    return;
+  }
+  const target = ensureParagraphTargetBlock();
+  target.content.text = String(state.editor.aiAssistResult.replacementBody || "");
+  showToast("AI draft applied.");
+  renderApp();
+}
+
+function applyEditorAiContinuation() {
+  if (!state.editor?.aiAssistResult?.continuation) {
+    return;
+  }
+  const target = ensureParagraphTargetBlock();
+  const current = String(target.content.text || "").trim();
+  const continuation = String(state.editor.aiAssistResult.continuation || "").trim();
+  target.content.text = current ? `${current} ${continuation}` : continuation;
+  showToast("Continuation added.");
+  renderApp();
 }
 
 function buildTemplateNameFromFilename(filename = "") {
@@ -2946,6 +3037,15 @@ root.addEventListener("click", async (event) => {
     case "send-editor-to-selected-contacts":
       await sendEditorEmailToSelectedContacts();
       return;
+    case "run-editor-ai-assist":
+      await runEditorAiAssist();
+      return;
+    case "apply-editor-ai-full-draft":
+      applyEditorAiFullDraft();
+      return;
+    case "apply-editor-ai-continuation":
+      applyEditorAiContinuation();
+      return;
     case "save-template-editor":
       await saveTemplateFromEditor();
       return;
@@ -3142,6 +3242,11 @@ root.addEventListener("input", (event) => {
     return;
   }
 
+  if (event.target.id === "editor-ai-assist-prompt") {
+    state.editor.aiAssistPrompt = event.target.value;
+    return;
+  }
+
   if (event.target.dataset.editorScope === "canvas") {
     const field = event.target.dataset.editorField;
     state.editor.design.canvas[field] = coerceEditorValue(event.target.value, event.target.type);
@@ -3237,6 +3342,13 @@ root.addEventListener("change", async (event) => {
     const selectedCompany = getEditorCompany(state.editor);
     const selectedCompanyContacts = getCompanyContacts(selectedCompany);
     state.editor.selectedContactIds = selectedCompanyContacts[0]?.id ? [selectedCompanyContacts[0].id] : [];
+    renderApp();
+    return;
+  }
+
+  if (event.target.id === "editor-ai-assist-mode") {
+    state.editor.aiAssistMode = event.target.value || "first_outreach";
+    state.editor.aiAssistError = "";
     renderApp();
     return;
   }
