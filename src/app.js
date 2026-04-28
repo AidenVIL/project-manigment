@@ -1530,23 +1530,6 @@ function renderShell() {
           <h1>${escapeHtml(APP_CONFIG.teamName)}</h1>
           <p>${escapeHtml(APP_CONFIG.seasonLabel)}</p>
         </div>
-        <div class="sidebar-panel status-panel">
-          <span class="metric-label">Workspace Mode</span>
-          <strong>${modeLabel}</strong>
-          <p>
-            ${
-              isLiveMode()
-                ? "Shared password gate enabled with Supabase data underneath."
-                : "Running on local demo data until Supabase keys are configured."
-            }
-          </p>
-          ${
-            isPasswordGateEnabled()
-              ? `<p>Signed in as <strong>${escapeHtml(currentUser?.username || "shared")}</strong></p>
-                 <button type="button" class="ghost-button" data-action="sign-out">Sign Out</button>`
-              : ""
-          }
-        </div>
       </aside>
       <main class="workspace">
         <section class="workspace-topbar panel">
