@@ -74,6 +74,22 @@ export function renderCompaniesView({ filters, companies, totalCompanies }) {
     { value: "all", label: "All statuses" },
     ...companyStatusOptions
   ];
+  const responseOptions = [
+    { value: "all", label: "All response states" },
+    ...responseStatusOptions
+  ];
+  const askOptions = [
+    { value: "all", label: "All ask types" },
+    ...askTypeOptions
+  ];
+  const sortOptions = [
+    { value: "updated_desc", label: "Recently updated" },
+    { value: "alpha_asc", label: "A-Z company" },
+    { value: "alpha_desc", label: "Z-A company" },
+    { value: "next_follow_up", label: "Next follow-up date" },
+    { value: "ask_desc", label: "Highest ask value" },
+    { value: "confirmed_desc", label: "Highest confirmed value" }
+  ];
 
   const companyCards = companies.length
     ? companies
@@ -88,6 +104,7 @@ export function renderCompaniesView({ filters, companies, totalCompanies }) {
                 <div>
                   <h3>${escapeHtml(company.companyName)}</h3>
                   <p>${escapeHtml(company.contactName || "Primary contact not set")}</p>
+                  <p>${escapeHtml(`${(company.contacts || []).length} saved contact${(company.contacts || []).length === 1 ? "" : "s"}`)}</p>
                   ${
                     company.website
                       ? `<p><a href="${escapeHtml(company.website)}" target="_blank" rel="noreferrer">${escapeHtml(
@@ -188,6 +205,48 @@ export function renderCompaniesView({ filters, companies, totalCompanies }) {
               .map(
                 (option) => `
                   <option value="${option.value}" ${filters.status === option.value ? "selected" : ""}>
+                    ${option.label}
+                  </option>
+                `
+              )
+              .join("")}
+          </select>
+        </div>
+        <div class="toolbar-field">
+          <span>Response</span>
+          <select id="response-status-filter">
+            ${responseOptions
+              .map(
+                (option) => `
+                  <option value="${option.value}" ${filters.responseStatus === option.value ? "selected" : ""}>
+                    ${option.label}
+                  </option>
+                `
+              )
+              .join("")}
+          </select>
+        </div>
+        <div class="toolbar-field">
+          <span>Ask Type</span>
+          <select id="ask-type-filter">
+            ${askOptions
+              .map(
+                (option) => `
+                  <option value="${option.value}" ${filters.askType === option.value ? "selected" : ""}>
+                    ${option.label}
+                  </option>
+                `
+              )
+              .join("")}
+          </select>
+        </div>
+        <div class="toolbar-field">
+          <span>Sort</span>
+          <select id="company-sort-filter">
+            ${sortOptions
+              .map(
+                (option) => `
+                  <option value="${option.value}" ${filters.sortBy === option.value ? "selected" : ""}>
                     ${option.label}
                   </option>
                 `

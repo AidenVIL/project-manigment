@@ -3,6 +3,7 @@ import { askTypeOptions, createCompany, getOptionLabel } from "./models/company-
 import { accountService } from "./services/account-service.js";
 import { authService } from "./services/auth-service.js";
 import { askCompanyAssistant } from "./services/company-chat-service.js";
+import { atomicIntelligenceService } from "./services/atomic-intelligence-service.js";
 import {
   buildCalendarEvents,
   buildCalendarMonthView,
@@ -26,6 +27,7 @@ import { renderMailboxView } from "./ui/views/mailbox-view.js";
 import { renderAccountsView } from "./ui/views/accounts-view.js";
 import { renderTemplateEditorView } from "./ui/views/template-editor-view.js";
 import { renderEmailStudioView } from "./ui/views/template-hub-view.js";
+import { renderAtomicIntelligenceView } from "./ui/views/atomic-intelligence-view.js";
 import { addDaysToInputDate } from "./utils/date-utils.js";
 import { escapeHtml } from "./utils/formatters.js";
 
@@ -83,6 +85,13 @@ const workspaceViews = [
     eyebrow: "Templates",
     title: "Email templates and drafts",
     description: "Build master templates, spin up one-off drafts, and keep outreach copy consistent."
+  },
+  {
+    id: "intelligence",
+    label: "Atomic Intelligence",
+    eyebrow: "AI",
+    title: "AI command workspace",
+    description: "Run Pi-friendly AI chat, free web research, sponsor targeting, and saved strategic notes."
   }
 ];
 
@@ -168,7 +177,14 @@ const state = {
   workspaceView: "overview",
   preferredCompanyId: "",
   editor: null,
-  toast: ""
+  toast: "",
+  intelligence: {
+    activeTab: "chat",
+    input: "",
+    loading: false,
+    error: "",
+    messages: []
+  }
 };
 
 let toastTimer = null;
@@ -793,6 +809,47 @@ async function handleAssistantQuestion(question = "") {
   }
 }
 
+async function handleIntelligenceQuestion(question = "") {
+  const cleanQuestion = String(question || "").trim();
+  if (!cleanQuestion || state.intelligence.loading) {
+    return;
+  }
+
+  state.intelligence.loading = true;
+  state.intelligence.error = "";
+  state.intelligence.messages.push({
+    role: "user",
+    text: cleanQuestion
+  });
+  state.intelligence.input = "";
+  renderApp();
+
+  try {
+    const payload = await atomicIntelligenceService.chat({
+      question: cleanQuestion,
+      mode: state.intelligence.activeTab,
+      companies: state.companies
+    });
+
+    const answerText = payload?.answer || "I couldn't produce a useful result yet.";
+    state.intelligence.messages.push({
+      role: "assistant",
+      text: answerText
+    });
+    atomicIntelligenceService.saveHistory(state.intelligence.messages);
+  } catch (error) {
+    state.intelligence.error = error.message || "Atomic Intelligence could not complete that request.";
+    state.intelligence.messages.push({
+      role: "assistant",
+      text: `I hit an issue: ${state.intelligence.error}`
+    });
+    atomicIntelligenceService.saveHistory(state.intelligence.messages);
+  } finally {
+    state.intelligence.loading = false;
+    renderApp();
+  }
+}
+
 function showToast(message) {
   state.toast = message;
   renderApp();
@@ -1212,10 +1269,12 @@ function renderShell() {
                 error: state.accounts.error,
                 canManage: (currentUser?.role || "member") === "admin"
               })
-            : renderEmailStudioView({
-                templates: state.templates,
-                drafts: state.drafts
-              });
+            : activeView.id === "emails"
+              ? renderEmailStudioView({
+                  templates: state.templates,
+                  drafts: state.drafts
+                })
+              : renderAtomicIntelligenceView(state.intelligence);
 
   return `
     <div class="site-layout">
@@ -1442,6 +1501,16 @@ async function loadAppData() {
     state.companies = companies;
     state.templates = templates;
     state.drafts = draftService.loadDrafts();
+    const intelligenceHistory = atomicIntelligenceService.loadHistory();
+    state.intelligence.messages = intelligenceHistory.length
+      ? intelligenceHistory
+      : [
+          {
+            role: "assistant",
+            text:
+              "I’m Atomic Intelligence. Ask me for sponsor leads, company summaries, latest news, or outreach strategy."
+          }
+        ];
 
     if (!state.companies.some((company) => company.id === state.preferredCompanyId)) {
       state.preferredCompanyId = state.companies[0]?.id || "";
@@ -2493,6 +2562,23 @@ root.addEventListener("click", async (event) => {
       }
       renderApp();
       return;
+    case "set-intelligence-tab":
+      state.intelligence.activeTab = id || "chat";
+      renderApp();
+      return;
+    case "intelligence-clear-chat":
+      state.intelligence.messages = [
+        {
+          role: "assistant",
+          text:
+            "History cleared. Ask for company summaries, sponsor targets, funding opportunities, or outreach strategy."
+        }
+      ];
+      state.intelligence.error = "";
+      atomicIntelligenceService.clearHistory();
+      atomicIntelligenceService.saveHistory(state.intelligence.messages);
+      renderApp();
+      return;
     case "toggle-assistant":
       state.assistant.open = !state.assistant.open;
       renderApp();
@@ -2907,6 +2993,11 @@ root.addEventListener("click", async (event) => {
 });
 
 root.addEventListener("input", (event) => {
+  if (event.target.id === "intelligence-chat-input") {
+    state.intelligence.input = event.target.value;
+    return;
+  }
+
   if (event.target.id === "company-search") {
     state.filters.search = event.target.value;
     companySearchFocusSnapshot = {
@@ -3291,6 +3382,12 @@ root.addEventListener("submit", async (event) => {
     const formData = new FormData(event.target);
     await handleAssistantQuestion(String(formData.get("question") || ""));
     event.target.reset();
+    return;
+  }
+
+  if (event.target.id === "intelligence-chat-form") {
+    const formData = new FormData(event.target);
+    await handleIntelligenceQuestion(String(formData.get("question") || ""));
     return;
   }
 

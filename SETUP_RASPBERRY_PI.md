@@ -39,7 +39,7 @@ sudo systemctl enable ollama
 sudo systemctl start ollama
 
 # Pull Mistral (might take 10-15 min on Pi)
-ollama pull mistral
+ollama pull llama3.1:8b
 ```
 
 ### 4. Install Node.js & Clone Your App
@@ -73,9 +73,10 @@ Wants=ollama.service
 Type=simple
 User=ubuntu
 WorkingDirectory=/home/ubuntu/project-manigment
-Environment="USE_OLLAMA=true"
+Environment="USE_OLLAMA=auto"
 Environment="OLLAMA_ENDPOINT=http://localhost:11434"
-Environment="OLLAMA_MODEL=mistral"
+Environment="OLLAMA_MODEL=llama3.1:8b"
+Environment="SEARCH_PROVIDER=duckduckgo"
 Environment="PORT=3000"
 ExecStart=/usr/bin/node server.mjs
 Restart=on-failure

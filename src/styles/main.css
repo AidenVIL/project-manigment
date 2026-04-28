@@ -2146,6 +2146,96 @@ textarea {
   box-shadow: var(--shadow);
 }
 
+.intel-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.intel-tabs__tab {
+  border: 1px solid var(--border-soft);
+  background: var(--surface-alt);
+  color: var(--text-strong);
+  border-radius: 999px;
+  padding: 0.5rem 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.intel-tabs__tab.is-active {
+  background: var(--brand-soft);
+  border-color: var(--brand-primary);
+  color: var(--text-strong);
+}
+
+.intel-chat {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.intel-chat__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.intel-chat__messages {
+  display: grid;
+  gap: 0.65rem;
+  max-height: 48vh;
+  overflow: auto;
+  padding-right: 0.25rem;
+}
+
+.intel-chat__message {
+  display: flex;
+}
+
+.intel-chat__message--assistant {
+  justify-content: flex-start;
+}
+
+.intel-chat__message--user {
+  justify-content: flex-end;
+}
+
+.intel-chat__bubble {
+  max-width: min(78ch, 86%);
+  border-radius: 14px;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--border-soft);
+  background: var(--surface-alt);
+  line-height: 1.45;
+}
+
+.intel-chat__message--user .intel-chat__bubble {
+  background: color-mix(in srgb, var(--brand-primary) 14%, var(--surface-alt));
+  border-color: color-mix(in srgb, var(--brand-primary) 36%, var(--border-soft));
+}
+
+.intel-chat__typing {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.intel-chat__form {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.intel-chat__form textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 86px;
+}
+
+.intel-chat__form-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 @media (max-width: 1180px) {
   .site-layout,
   .hero-panel,

@@ -1219,6 +1219,29 @@ async function fetchBingSearchHtml(query = "") {
   return response.text();
 }
 
+async function fetchDuckDuckGoSearchHtml(query = "") {
+  const normalizedQuery = String(query || "").trim();
+  if (!normalizedQuery) {
+    throw new Error("Add a company name first.");
+  }
+
+  const response = await fetch(`https://duckduckgo.com/html/?q=${encodeURIComponent(normalizedQuery)}&kl=uk-en`, {
+    method: "GET",
+    redirect: "follow",
+    signal: AbortSignal.timeout(9000),
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0 Safari/537.36"
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`Could not search for ${normalizedQuery} (${response.status}).`);
+  }
+
+  return response.text();
+}
+
 function parseSearchResults(html = "") {
   const exclusions = [
     "bing.com",
@@ -1275,6 +1298,101 @@ function parseSearchResults(html = "") {
       }
     })
     .filter(Boolean);
+}
+
+function parseDuckDuckGoSearchResults(html = "") {
+  const exclusions = [
+    "duckduckgo.com",
+    "linkedin.com",
+    "facebook.com",
+    "instagram.com",
+    "twitter.com",
+    "x.com",
+    "youtube.com",
+    "wikipedia.org",
+    "glassdoor.com",
+    "indeed.com",
+    "quora.com",
+    "pinterest.com",
+    "tiktok.com",
+    "medium.com",
+    "substack.com",
+    "wordpress.com"
+  ];
+  const blocks = [...String(html || "").matchAll(/<div\b[^>]*class="[^"]*result[^"]*"[\s\S]*?<\/div>\s*<\/div>/gi)];
+
+  return blocks
+    .map((match) => {
+      const block = match[0] || "";
+      const linkMatch =
+        block.match(/<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i) ||
+        block.match(/<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
+      const snippetMatch =
+        block.match(/<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/i) ||
+        block.match(/<div[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+      const normalized = normalizeSearchResultUrl(linkMatch?.[1] || "");
+      if (!normalized) {
+        return null;
+      }
+
+      try {
+        const url = new URL(normalized);
+        const hostname = url.hostname.toLowerCase();
+        if (exclusions.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`))) {
+          return null;
+        }
+
+        if (looksLikeArticlePath(url.toString()) && !looksLikeCompanyDirectoryResult(linkMatch?.[2] || "", snippetMatch?.[1] || "")) {
+          return null;
+        }
+
+        return {
+          website: url.toString(),
+          title: normalizeWhitespace(stripHtml(linkMatch?.[2] || "")),
+          snippet: normalizeWhitespace(stripHtml(snippetMatch?.[1] || ""))
+        };
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+}
+
+async function fetchSearchResults(query = "") {
+  const preferredProvider = (process.env.SEARCH_PROVIDER || "duckduckgo").trim().toLowerCase();
+  const providers =
+    preferredProvider === "bing"
+      ? ["bing", "duckduckgo"]
+      : preferredProvider === "duckduckgo"
+        ? ["duckduckgo", "bing"]
+        : ["duckduckgo", "bing"];
+
+  let lastError = null;
+  for (const provider of providers) {
+    try {
+      if (provider === "duckduckgo") {
+        const html = await fetchDuckDuckGoSearchHtml(query);
+        const parsed = parseDuckDuckGoSearchResults(html);
+        if (parsed.length) {
+          return parsed;
+        }
+      } else {
+        const html = await fetchBingSearchHtml(query);
+        const parsed = parseSearchResults(html);
+        if (parsed.length) {
+          return parsed;
+        }
+      }
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (lastError) {
+    throw lastError;
+  }
+
+  return [];
 }
 
 function tokenizeSearchTerms(value = "") {
@@ -1609,8 +1727,7 @@ async function discoverCompanyCandidatesFromSearch({
   const collectedResults = [];
   for (const searchQuery of searchQueries) {
     try {
-      const html = await fetchBingSearchHtml(searchQuery);
-      collectedResults.push(...parseSearchResults(html));
+      collectedResults.push(...(await fetchSearchResults(searchQuery)));
     } catch {
       // Try the next query variant.
     }
@@ -1669,8 +1786,7 @@ async function discoverExternalSponsorCandidates({ industry = "", context = "" }
   const collectedResults = [];
   for (const searchQuery of searchQueries) {
     try {
-      const html = await fetchBingSearchHtml(searchQuery);
-      collectedResults.push(...parseSearchResults(html));
+      collectedResults.push(...(await fetchSearchResults(searchQuery)));
     } catch {
       // Continue searching via other query variants.
     }
@@ -1872,9 +1988,10 @@ function buildBlockedResearchResult({
 }
 
 async function maybeRefineWithGemini(researchDraft) {
-  const useOllama = (process.env.USE_OLLAMA || "").toLowerCase() === "true";
+  const useOllamaSetting = (process.env.USE_OLLAMA || "auto").toLowerCase();
+  const useOllama = useOllamaSetting === "true" || useOllamaSetting === "auto";
   const ollamaEndpoint = process.env.OLLAMA_ENDPOINT || "http://localhost:11434";
-  const ollamaModel = process.env.OLLAMA_MODEL || "mistral";
+  const ollamaModel = process.env.OLLAMA_MODEL || "llama3.1:8b";
 
   if (!useOllama && !runtimeSecrets.geminiApiKey) {
     return null;
@@ -1917,9 +2034,13 @@ async function maybeRefineWithGemini(researchDraft) {
       return safeJsonParse(text);
     } catch (error) {
       console.error("Ollama refinement failed:", error.message);
-      return null;
+      if (!runtimeSecrets.geminiApiKey) {
+        return null;
+      }
     }
-  } else {
+  }
+
+  if (runtimeSecrets.geminiApiKey) {
     // Original Gemini flow
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
@@ -1954,6 +2075,8 @@ async function maybeRefineWithGemini(researchDraft) {
     const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("") || "";
     return safeJsonParse(text);
   }
+
+  return null;
 }
 
 
@@ -2125,6 +2248,135 @@ async function researchCompanyWebsite({
   }
 
   return draft;
+}
+
+function trimForPrompt(value = "", maxLength = 1800) {
+  const text = normalizeWhitespace(String(value || ""));
+  if (text.length <= maxLength) {
+    return text;
+  }
+  return `${text.slice(0, maxLength)}...`;
+}
+
+async function runAtomicWebResearch(question = "") {
+  const results = await fetchSearchResults(question);
+  const topResults = dedupeBy(results, (entry) => entry.website).slice(0, 5);
+  const research = [];
+
+  for (const item of topResults.slice(0, 3)) {
+    try {
+      const page = await fetchResearchPage(item.website);
+      research.push({
+        title: item.title || page.title || item.website,
+        website: item.website,
+        summary: trimForPrompt(page.description || page.text || item.snippet || "", 1100),
+        source: "web"
+      });
+    } catch {
+      research.push({
+        title: item.title || item.website,
+        website: item.website,
+        summary: trimForPrompt(item.snippet || "Public result found but page could not be fully scanned.", 600),
+        source: "search"
+      });
+    }
+  }
+
+  return research;
+}
+
+function buildAtomicFallbackAnswer({ question = "", mode = "research", research = [], companies = [] } = {}) {
+  const lines = [];
+  lines.push(`### Atomic Intelligence (${mode})`);
+  lines.push(`Question: ${question}`);
+
+  if (research.length) {
+    lines.push("\nTop findings:");
+    for (const item of research) {
+      lines.push(`- **${item.title}** - ${item.summary}`);
+      lines.push(`  Source: ${item.website}`);
+    }
+  } else {
+    lines.push("\nI could not find reliable public sources in this pass.");
+  }
+
+  if (Array.isArray(companies) && companies.length) {
+    const shortlisted = companies
+      .slice(0, 3)
+      .map((company) => `- ${company.companyName} (${company.status || "prospect"})`)
+      .join("\n");
+    lines.push("\nCurrent tracked companies snapshot:");
+    lines.push(shortlisted);
+  }
+
+  lines.push("\nSuggested next step: send me a company name + location + sponsor context and I will return a tighter outreach angle.");
+  return lines.join("\n");
+}
+
+async function generateAtomicIntelligenceAnswer({ question = "", mode = "research", companies = [] } = {}) {
+  const cleanQuestion = String(question || "").trim();
+  if (!cleanQuestion) {
+    throw new Error("Ask a question first.");
+  }
+
+  const research = await runAtomicWebResearch(cleanQuestion);
+  const useOllamaSetting = (process.env.USE_OLLAMA || "auto").toLowerCase();
+  const useOllama = useOllamaSetting === "true" || useOllamaSetting === "auto";
+  const ollamaEndpoint = process.env.OLLAMA_ENDPOINT || "http://localhost:11434";
+  const ollamaModel = process.env.OLLAMA_MODEL || "llama3.1:8b";
+
+  if (useOllama) {
+    try {
+      const prompt = [
+        "You are Atomic Intelligence, an elite but concise sponsorship research copilot for a STEM racing team.",
+        "Respond in clean markdown.",
+        "Give:",
+        "1) a short direct answer",
+        "2) 3 practical actions",
+        "3) sponsor outreach angle",
+        "4) cite which source links you used",
+        `Mode: ${mode}`,
+        `Question: ${cleanQuestion}`,
+        `Research: ${JSON.stringify(research)}`,
+        `Tracked companies snapshot: ${JSON.stringify((companies || []).slice(0, 8))}`
+      ].join("\n");
+
+      const response = await fetch(`${ollamaEndpoint}/api/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify({
+          model: ollamaModel,
+          prompt,
+          stream: false,
+          temperature: 0.2
+        }),
+        signal: AbortSignal.timeout(45000)
+      });
+
+      if (response.ok) {
+        const payload = await response.json();
+        const answer = String(payload.response || "").trim();
+        if (answer) {
+          return {
+            answer,
+            research
+          };
+        }
+      }
+    } catch {
+      // fall through to deterministic fallback
+    }
+  }
+
+  return {
+    answer: buildAtomicFallbackAnswer({
+      question: cleanQuestion,
+      mode,
+      research,
+      companies
+    }),
+    research
+  };
 }
 
 function encodeBase64Url(value = "") {
@@ -2414,6 +2666,23 @@ async function handleRequest(request, response) {
       sendJson(response, 200, { ok: true });
     } catch (error) {
       sendJson(response, 500, { error: error.message });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/atomic-intelligence/chat") {
+    try {
+      const body = await readJsonBody(request);
+      const result = await generateAtomicIntelligenceAnswer({
+        question: body.question || "",
+        mode: body.mode || "research",
+        companies: Array.isArray(body.companies) ? body.companies.slice(0, 30) : []
+      });
+      sendJson(response, 200, result);
+    } catch (error) {
+      sendJson(response, 500, {
+        error: error.message || "Atomic Intelligence could not complete that request."
+      });
     }
     return;
   }

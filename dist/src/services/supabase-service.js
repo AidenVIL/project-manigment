@@ -1,13 +1,10 @@
 import { APP_CONFIG, isSupabaseConfigured } from "../config/runtime-config.js";
-import { authService } from "./auth-service.js";
 
 function buildHeaders(extraHeaders = {}) {
-  const accessToken = authService.getAccessToken();
-
   return {
     "Content-Type": "application/json",
     apikey: APP_CONFIG.supabase.anonKey,
-    Authorization: `Bearer ${accessToken || APP_CONFIG.supabase.anonKey}`,
+    Authorization: `Bearer ${APP_CONFIG.supabase.anonKey}`,
     ...extraHeaders
   };
 }
@@ -60,12 +57,23 @@ async function request(path, options = {}) {
   return response.json();
 }
 
+async function testConnection() {
+  if (!isSupabaseConfigured()) {
+    throw new Error("Supabase is not configured.");
+  }
+
+  await request("workspace_users?select=id&limit=1");
+}
+
 export const supabaseService = {
   isReady() {
     return isSupabaseConfigured();
   },
-  async list(tableName) {
-    return request(`${tableName}?select=*`);
+  async testConnection() {
+    return testConnection();
+  },
+  async list(tableName, query = "select=*") {
+    return request(`${tableName}?${query}`);
   },
   async upsert(tableName, record) {
     const result = await request(`${tableName}?on_conflict=id`, {
@@ -84,6 +92,12 @@ export const supabaseService = {
       headers: {
         Prefer: "return=minimal"
       }
+    });
+  },
+  async rpc(functionName, params = {}) {
+    return request(`rpc/${functionName}`, {
+      method: "POST",
+      body: JSON.stringify(params)
     });
   }
 };
