@@ -3,9 +3,22 @@ import { accountService } from "./account-service.js";
 import { isSupabaseConfigured } from "../config/runtime-config.js";
 
 export const authService = {
+  SESSION_DURATION_MS: 24 * 60 * 60 * 1000, // 24 hours
+  
   loadSession() {
     return storageService.read(STORAGE_KEYS.session, null);
   },
+  
+  isSessionValid() {
+    const session = this.loadSession();
+    if (!session?.unlocked || !session?.unlockedAt) {
+      return false;
+    }
+    const unlockedTime = new Date(session.unlockedAt).getTime();
+    const now = new Date().getTime();
+    return (now - unlockedTime) < this.SESSION_DURATION_MS;
+  },
+  
   getAccessToken() {
     return "";
   },
@@ -21,7 +34,7 @@ export const authService = {
     };
   },
   isSignedIn() {
-    return Boolean(this.loadSession()?.unlocked);
+    return this.isSessionValid();
   },
   async signIn(credentials = {}, expectedPassword) {
     const username = String(credentials.username || "").trim().toLowerCase();

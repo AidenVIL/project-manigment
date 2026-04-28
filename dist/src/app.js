@@ -126,13 +126,6 @@ const workspaceViews = [
     description: "Build master templates, spin up one-off drafts, and keep outreach copy consistent."
   },
   {
-    id: "intelligence",
-    label: "Atomic Intelligence",
-    eyebrow: "AI",
-    title: "AI command workspace",
-    description: "Run Pi-friendly AI chat, free web research, sponsor targeting, and saved strategic notes."
-  },
-  {
     id: "scrutineering",
     label: "Scrutineering",
     eyebrow: "Engineering",
@@ -179,7 +172,8 @@ const state = {
     selectedModalContactId: "",
     selectedCompanyCandidateId: "",
     appliedCompanyCandidateId: "",
-    completedResearchEntries: []
+    completedResearchEntries: [],
+    finderOpen: false
   },
   assistant: {
     open: false,
@@ -245,7 +239,8 @@ const state = {
   thankyou: {
     recipientName: "Your Supporter",
     donationAmount: "£25",
-    message: "Thank you for supporting Atomic. Your donation helps us design, test, and race at our best.",
+    message:
+      "Thank you for supporting Atomic. Your contribution directly helps fund the engineering, testing, and development behind our race car as we prepare to compete at the highest level. We greatly appreciate your trust and support in helping drive our journey forward.",
     fromName: "Atomic Team",
     fromRole: "Partnerships Lead"
   }
@@ -499,6 +494,7 @@ function resetModalResearchState() {
   state.modal.selectedCompanyCandidateId = "";
   state.modal.appliedCompanyCandidateId = "";
   state.modal.completedResearchEntries = [];
+  state.modal.finderOpen = false;
 }
 
 function applyResearchSuggestionsToDraft(result) {
@@ -964,9 +960,46 @@ function toggleScrutineeringCheck(id) {
   active.checks = active.checks.map((item) => (item.id === id ? { ...item, done: !item.done } : item));
 }
 
-function updateScrutineeringRegActual(id, value) {
+function updateScrutineeringRegField(id, field, value) {
   const active = getActiveScrutineeringCar();
-  active.regulations = active.regulations.map((item) => (item.id === id ? { ...item, actual: value } : item));
+  active.regulations = active.regulations.map((item) => {
+    if (item.id !== id) {
+      return item;
+    }
+
+    const normalizedValue = field === "min" || field === "max" || field === "actual"
+      ? value === ""
+        ? ""
+        : Number(value)
+      : value;
+
+    return {
+      ...item,
+      [field]: normalizedValue
+    };
+  });
+}
+
+function addScrutineeringRegulation() {
+  const active = getActiveScrutineeringCar();
+  active.regulations = [
+    ...active.regulations,
+    {
+      id: crypto.randomUUID(),
+      code: "",
+      label: "",
+      min: "",
+      max: "",
+      unit: "",
+      penalty: "",
+      actual: ""
+    }
+  ];
+}
+
+function deleteScrutineeringRegulation(id) {
+  const active = getActiveScrutineeringCar();
+  active.regulations = active.regulations.filter((item) => item.id !== id);
 }
 
 function consumeOauthFeedback() {
@@ -1492,23 +1525,6 @@ function renderShell() {
           <h1>${escapeHtml(APP_CONFIG.teamName)}</h1>
           <p>${escapeHtml(APP_CONFIG.seasonLabel)}</p>
         </div>
-        <div class="sidebar-panel status-panel">
-          <span class="metric-label">Workspace Mode</span>
-          <strong>${modeLabel}</strong>
-          <p>
-            ${
-              isLiveMode()
-                ? "Shared password gate enabled with Supabase data underneath."
-                : "Running on local demo data until Supabase keys are configured."
-            }
-          </p>
-          ${
-            isPasswordGateEnabled()
-              ? `<p>Signed in as <strong>${escapeHtml(currentUser?.username || "shared")}</strong></p>
-                 <button type="button" class="ghost-button" data-action="sign-out">Sign Out</button>`
-              : ""
-          }
-        </div>
       </aside>
       <main class="workspace">
         <section class="workspace-topbar panel">
@@ -1552,24 +1568,13 @@ function renderShell() {
             })
           : ""
       }
-      ${renderAssistantWidget()}
       ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}
     </div>
   `;
 }
 
-function drawThankYouCard() {
-  const canvas = root.querySelector("#thankyou-card-canvas");
-  if (!canvas) {
-    return;
-  }
-
-  const ctx = canvas.getContext("2d");
-  if (!ctx) {
-    return;
-  }
-
-  const model = state.thankyou;
+function paintThankYouCard(ctx, model, logo = null) {
+  const canvas = ctx.canvas;
   const w = canvas.width;
   const h = canvas.height;
 
@@ -1589,13 +1594,20 @@ function drawThankYouCard() {
   ctx.fill();
   ctx.globalAlpha = 1;
 
+  if (logo && logo.complete) {
+    const logoWidth = 120;
+    const logoHeight = 120;
+    ctx.drawImage(logo, 72, 72, logoWidth, logoHeight);
+  }
+
   ctx.fillStyle = "#d8ffd2";
   ctx.font = "600 24px Roobert, Arial, sans-serif";
-  ctx.fillText("ATOMIC", 72, 88);
+  const titleX = logo ? 72 + 120 + 24 : 72;
+  ctx.fillText("ATOMIC", titleX, 88);
 
   ctx.fillStyle = "#ffffff";
   ctx.font = "700 58px Roobert, Arial, sans-serif";
-  ctx.fillText("Thank You", 72, 190);
+  ctx.fillText("Thank You", titleX, 190);
 
   ctx.font = "500 34px Roobert, Arial, sans-serif";
   ctx.fillStyle = "#c5ffd6";
@@ -1624,8 +1636,8 @@ function drawThankYouCard() {
   if (line) {
     lines.push(line);
   }
-  lines.slice(0, 4).forEach((ln, idx) => {
-    ctx.fillText(ln, 72, 380 + idx * 42);
+  lines.slice(0, 6).forEach((ln, idx) => {
+    ctx.fillText(ln, 72, 380 + idx * 38);
   });
 
   ctx.fillStyle = "#d8ffd2";
@@ -1634,6 +1646,30 @@ function drawThankYouCard() {
   ctx.font = "400 24px Roobert, Arial, sans-serif";
   ctx.fillStyle = "#b7f7c8";
   ctx.fillText(model.fromRole || "Partnerships", 72, h - 72);
+}
+
+function drawThankYouCard() {
+  const canvas = root.querySelector("#thankyou-card-canvas");
+  if (!canvas) {
+    return;
+  }
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    return;
+  }
+
+  const model = state.thankyou;
+  paintThankYouCard(ctx, model);
+
+  const logo = new Image();
+  logo.src = APP_CONFIG.logoPath;
+  logo.onload = () => {
+    paintThankYouCard(ctx, model, logo);
+  };
+  logo.onerror = () => {
+    paintThankYouCard(ctx, model);
+  };
 }
 
 function renderAssistantWidget() {
@@ -2863,6 +2899,18 @@ root.addEventListener("click", async (event) => {
       state.scrutineering.activeCarId = id;
       renderApp();
       return;
+    case "add-scrut-rule":
+      addScrutineeringRegulation();
+      renderApp();
+      showToast("New rule added.");
+      return;
+    case "delete-scrut-rule":
+      if (window.confirm("Delete this rule?")) {
+        deleteScrutineeringRegulation(id);
+        renderApp();
+        showToast("Rule deleted.");
+      }
+      return;
     case "download-thankyou-png": {
       const canvas = root.querySelector("#thankyou-card-canvas");
       if (!canvas) {
@@ -2946,6 +2994,10 @@ root.addEventListener("click", async (event) => {
       state.modal.selectedCompanyCandidateId = "";
       state.modal.appliedCompanyCandidateId = "";
       renderApp();
+      return;
+    case "toggle-modal-finder":
+      state.modal.finderOpen = !state.modal.finderOpen;
+      renderAppPreserveModalScroll();
       return;
     case "preview-company-candidate": {
       const candidate = state.modal.researchResult?.companyCandidates?.find((entry) => entry.id === id);
@@ -3342,8 +3394,12 @@ root.addEventListener("input", (event) => {
     return;
   }
 
-  if (event.target.dataset.scrutReg) {
-    updateScrutineeringRegActual(event.target.dataset.scrutReg, event.target.value);
+  if (event.target.dataset.scrutRegField && event.target.dataset.scrutFieldName) {
+    updateScrutineeringRegField(
+      event.target.dataset.scrutRegField,
+      event.target.dataset.scrutFieldName,
+      event.target.value
+    );
     renderApp();
     return;
   }
@@ -3821,6 +3877,19 @@ root.addEventListener("submit", async (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
+  // Auto-focus password field when Enter is pressed on username field (if password is empty)
+  if (event.key === "Enter" && event.target.classList.contains("auth-username-input")) {
+    const form = event.target.closest("form");
+    if (form) {
+      const passwordInput = form.querySelector(".auth-password-input");
+      if (passwordInput && !passwordInput.value) {
+        event.preventDefault();
+        passwordInput.focus();
+        return;
+      }
+    }
+  }
+
   if (event.key === "Escape" && currentLayoutDrag) {
     endLayoutDrag();
     return;

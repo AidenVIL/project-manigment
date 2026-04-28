@@ -33,16 +33,6 @@ export function renderScrutineeringView(scrutState, activeCar) {
   const total = (activeCar.checks || []).length;
   const progress = total ? Math.round((completeCount / total) * 100) : 0;
 
-  const tol = activeCar.tolerance;
-  const toleranceDelta = Number(tol.actual || 0) - Number(tol.nominal || 0);
-  const tolerancePass = Math.abs(toleranceDelta) <= Number(tol.plusMinus || 0);
-
-  const density = activeCar.density;
-  const densityValue =
-    Number(density.volumeMm3 || 0) > 0
-      ? (Number(density.massG || 0) / Number(density.volumeMm3 || 0)).toFixed(6)
-      : "0.000000";
-
   const regulationRows = (activeCar.regulations || [])
     .map((reg) => {
       const actual = Number(reg.actual);
@@ -62,7 +52,7 @@ export function renderScrutineeringView(scrutState, activeCar) {
           <td><input type="number" class="scrut-table-input" step="any" data-scrut-reg-field="${escapeHtml(reg.id)}" data-scrut-field-name="actual" value="${escapeHtml(String(reg.actual ?? ""))}" /></td>
           <td><span class="badge badge--${statusClass}">${status}</span></td>
           <td><input type="text" class="scrut-table-input" placeholder="Penalty" data-scrut-reg-field="${escapeHtml(reg.id)}" data-scrut-field-name="penalty" value="${escapeHtml(reg.penalty || "")}" /></td>
-          <td><button type="button" class="danger-button" data-action="delete-scrut-rule" data-id="${escapeHtml(reg.id)}">Delete</button></td>
+          <td><button type="button" class="ghost-button ghost-button--compact" data-action="delete-scrut-rule" data-id="${escapeHtml(reg.id)}">Delete</button></td>
         </tr>
       `;
     })
@@ -106,62 +96,47 @@ export function renderScrutineeringView(scrutState, activeCar) {
       </div>
 
       <div class="scrut-grid">
-        <div class="scrut-left">
-          ${(activeCar.checks || []).map((check, idx) => renderCheckRow(check, idx)).join("")}
-        </div>
-        <div class="scrut-right">
-          <article class="panel">
-            <div class="panel-header">
-              <div>
-                <span class="eyebrow">Regulations Extract</span>
-                <h3>Technical limits (SRWF26)</h3>
-              </div>
-              <button type="button" class="secondary-button" data-action="add-scrut-rule">Add Rule</button>
+        <section class="panel scrut-section">
+          <div class="panel-header">
+            <div>
+              <span class="eyebrow">Checklist</span>
+              <h3>Inspection items</h3>
             </div>
-            <div class="table-wrap">
-              <table class="scrut-table">
-                <thead>
-                  <tr>
-                    <th>Rule</th>
-                    <th>Measure</th>
-                    <th>Min</th>
-                    <th>Max</th>
-                    <th>Unit</th>
-                    <th>Actual</th>
-                    <th>Status</th>
-                    <th>Penalty</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>${regulationRows}</tbody>
-              </table>
-            </div>
-            <p class="editor-help">These checks were seeded from SRWF26 technical regulations (expand as needed).</p>
-          </article>
+          </div>
+          <div class="scrut-checklist">
+            ${(activeCar.checks || []).map((check, idx) => renderCheckRow(check, idx)).join("")}
+          </div>
+        </section>
 
-          <article class="panel">
-            <span class="eyebrow">Engineering Helper</span>
-            <h3>Tolerance Check</h3>
-            <div class="form-grid">
-              <label class="field"><span>Nominal</span><input type="number" step="any" data-scrut-field="tolerance.nominal" value="${tol.nominal}" /></label>
-              <label class="field"><span>Actual</span><input type="number" step="any" data-scrut-field="tolerance.actual" value="${tol.actual}" /></label>
-              <label class="field"><span>+/- Tolerance</span><input type="number" step="any" data-scrut-field="tolerance.plusMinus" value="${tol.plusMinus}" /></label>
+        <article class="panel scrut-section">
+          <div class="panel-header">
+            <div>
+              <span class="eyebrow">Regulations Extract</span>
+              <h3>Technical limits (SRWF26)</h3>
             </div>
-            <p class="editor-help">Delta: <strong>${toleranceDelta.toFixed(4)}</strong> | Result: <strong>${tolerancePass ? "PASS" : "FAIL"}</strong></p>
-          </article>
-
-          <article class="panel">
-            <span class="eyebrow">Engineering Helper</span>
-            <h3>Density Estimate</h3>
-            <div class="form-grid">
-              <label class="field"><span>Mass (g)</span><input type="number" step="any" data-scrut-field="density.massG" value="${density.massG}" /></label>
-              <label class="field"><span>Volume (mm³)</span><input type="number" step="any" data-scrut-field="density.volumeMm3" value="${density.volumeMm3}" /></label>
-            </div>
-            <p class="editor-help">Density (g/mm³): <strong>${escapeHtml(densityValue)}</strong></p>
-          </article>
-        </div>
+            <button type="button" class="ghost-button" data-action="add-scrut-rule">Add Rule</button>
+          </div>
+          <div class="table-wrap">
+            <table class="scrut-table">
+              <thead>
+                <tr>
+                  <th>Rule</th>
+                  <th>Measure</th>
+                  <th>Min</th>
+                  <th>Max</th>
+                  <th>Unit</th>
+                  <th>Actual</th>
+                  <th>Status</th>
+                  <th>Penalty</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>${regulationRows}</tbody>
+            </table>
+          </div>
+          <p class="editor-help">These checks were seeded from SRWF26 technical regulations and can be edited as needed.</p>
+        </article>
       </div>
     </section>
   `;
 }
-

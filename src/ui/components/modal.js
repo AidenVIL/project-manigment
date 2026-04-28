@@ -109,7 +109,7 @@ function renderResearchCandidateList(candidates = [], action, buttonLabel = "Sel
 
 function renderSavedContactsList(contacts = [], selectedId = "") {
   if (!contacts.length) {
-    return `<p class="research-empty">No saved contacts yet. Add from Found Emails on the right.</p>`;
+    return `<p class="research-empty">No saved contacts yet. Add from the Found Emails list in the finder panel.</p>`;
   }
 
   return `
@@ -190,7 +190,7 @@ function renderSelectedCompanyCandidateDetail(candidate, isApplied = false) {
           <strong>Selected Company</strong>
           <span>Pick a result to preview it here.</span>
         </div>
-        <p class="research-empty">Run the finder, then use the list on the right to preview the best matches.</p>
+        <p class="research-empty">Run the finder, then use the shortlist below to preview the best matches.</p>
       </div>
     `;
   }
@@ -213,7 +213,7 @@ function renderSelectedCompanyCandidateDetail(candidate, isApplied = false) {
           ? `<p class="finder-full-summary">${escapeHtml(
               candidate.fullSummary || candidate.summaryLine || candidate.snippet || ""
             )}</p>`
-          : `<p class="research-empty">Use the shortlist on the right, then click Select to load the deeper company summary here.</p>`
+          : `<p class="research-empty">Use the shortlist below, then click Select to load the deeper company summary here.</p>`
       }
       <div class="finder-actions finder-actions--inline">
         <button
@@ -277,6 +277,205 @@ export function renderCompanyModal(modalState, company) {
     savedContacts.find((contact) => contact.id === modalState.selectedModalContactId) ||
     savedContacts[0] ||
     null;
+  const finderPanel = `
+    <section class="panel panel--embedded finder-panel modal-finder-panel">
+      <div class="modal-header modal-header--inline">
+        <div>
+          <span class="eyebrow">Finder</span>
+          <h3>Find By Website / Company</h3>
+        </div>
+      </div>
+      <div class="finder-mode-toggle">
+        <button
+          type="button"
+          class="editor-tab ${modalState.researchMode === "website" ? "is-active" : ""}"
+          data-action="set-research-mode"
+          data-id="website"
+        >
+          Website
+        </button>
+        <button
+          type="button"
+          class="editor-tab ${modalState.researchMode === "company" ? "is-active" : ""}"
+          data-action="set-research-mode"
+          data-id="company"
+        >
+          Company
+        </button>
+      </div>
+      <div class="finder-workspace ${modalState.researchMode === "company" ? "finder-workspace--split" : ""}">
+        <div class="finder-workspace__controls">
+          <div class="finder-inputs">
+            <label class="field">
+              <span>${primaryFinderLabel}</span>
+              <input
+                data-finder-field="finderCompanyName"
+                placeholder="${primaryFinderPlaceholder}"
+                value="${escapeHtml(modalState.finderCompanyName || "")}"
+              />
+            </label>
+            ${
+              isWebsiteMode
+                ? `
+                  <label class="field">
+                    <span>Website URL</span>
+                    <input
+                      data-finder-field="finderWebsite"
+                      type="url"
+                      placeholder="https://company-site.com"
+                      value="${escapeHtml(modalState.finderWebsite || "")}"
+                    />
+                  </label>
+                `
+                : `
+                  <label class="field">
+                    <span>${contextLabel}</span>
+                    <input
+                      data-finder-field="finderContext"
+                      placeholder="${contextPlaceholder}"
+                      value="${escapeHtml(modalState.finderContext || "")}"
+                    />
+                  </label>
+                  <div class="finder-mode-toggle finder-mode-toggle--sub">
+                    <button
+                      type="button"
+                      class="editor-tab ${modalState.companySearchMode === "company" ? "is-active" : ""}"
+                      data-action="set-company-search-mode"
+                      data-id="company"
+                    >
+                      Company Names
+                    </button>
+                    <button
+                      type="button"
+                      class="editor-tab ${modalState.companySearchMode === "industry" ? "is-active" : ""}"
+                      data-action="set-company-search-mode"
+                      data-id="industry"
+                    >
+                      Industry
+                    </button>
+                  </div>
+                `
+            }
+          </div>
+          <p class="finder-help">
+            ${finderHelpText}
+          </p>
+          <div class="finder-actions">
+            <button
+              type="button"
+              class="primary-button primary-button--full"
+              data-action="research-company"
+              ${modalState.researchLoading ? "disabled" : ""}
+            >
+              ${modalState.researchLoading ? "Searching..." : "Run Finder"}
+            </button>
+            <button
+              type="button"
+              class="ghost-button primary-button--full"
+              data-action="research-external"
+              ${modalState.researchLoading ? "disabled" : ""}
+            >
+              Search External Sponsor Sources
+            </button>
+            ${
+              researchResult
+                ? `<button type="button" class="ghost-button primary-button--full" data-action="apply-research-suggestions">
+                    Apply Overall Suggestions
+                  </button>`
+                : ""
+            }
+          </div>
+          ${
+            modalState.researchError
+              ? `<div class="inline-message inline-message--danger">${escapeHtml(modalState.researchError)}</div>`
+              : ""
+          }
+          ${
+            researchWarnings.length
+              ? `
+                <div class="inline-message inline-message--warning">
+                  ${researchWarnings.map((warning) => escapeHtml(warning)).join("<br />")}
+                </div>
+              `
+              : ""
+          }
+          ${
+            modalState.researchMode === "company"
+              ? renderSelectedCompanyCandidateDetail(selectedCompanyCandidate, selectedCompanyCandidateIsApplied)
+              : researchResult
+              ? `
+                <div class="finder-summary">
+                  <strong>${escapeHtml(researchResult.website || researchResult.companyName || "Finder results")}</strong>
+                  <span>${escapeHtml(researchResult.summary || "No summary generated.")}</span>
+                </div>
+              `
+              : `<p class="research-empty">Run the finder to build a selectable list of public emails and contact clues.</p>`
+          }
+        </div>
+        ${
+          modalState.researchMode === "company"
+            ? `
+              <div class="finder-workspace__results">
+                <div class="finder-section">
+                  <div class="finder-section__head">
+                    <strong>Potential Companies</strong>
+                    <span>${escapeHtml(String(companyCandidates.length))}</span>
+                  </div>
+                  ${renderCompanyCandidateList(
+                    companyCandidates,
+                    selectedCompanyCandidate?.id || "",
+                    "preview-company-candidate",
+                    "View"
+                  )}
+                </div>
+              </div>
+            `
+            : ""
+        }
+      </div>
+      ${
+        researchResult?.website
+          ? `
+            <div class="finder-section">
+              <div class="finder-section__head">
+                <strong>Found Emails</strong>
+                <span>${escapeHtml(String(researchCandidates.length))}</span>
+              </div>
+              ${renderResearchCandidateList(researchCandidates, "select-research-candidate", "Select")}
+            </div>
+          `
+          : ""
+      }
+      <div class="finder-section">
+        <div class="finder-section__head">
+          <strong>Completed</strong>
+          <span>${escapeHtml(String(modalState.completedResearchEntries.length || 0))}</span>
+        </div>
+        ${
+          modalState.completedResearchEntries.length
+            ? renderResearchCandidateList(
+                modalState.completedResearchEntries,
+                "reopen-completed-research",
+                "Amend"
+              )
+            : `<p class="research-empty">When you click Select on a result, it will move here so you can reopen and amend it later.</p>`
+        }
+      </div>
+      ${
+        researchResult
+          ? `
+            <div class="finder-section">
+              <div class="finder-section__head">
+                <strong>Suggested angle</strong>
+                <span>${escapeHtml(researchResult.recommendedAskTypeLabel || "General")}</span>
+              </div>
+              <p class="finder-help">${escapeHtml(researchResult.personalization || "No personalisation ideas generated.")}</p>
+            </div>
+          `
+          : ""
+      }
+    </section>
+  `;
 
   return `
     <div class="modal-backdrop ${isOpen ? "is-open" : ""}" aria-hidden="${isOpen ? "false" : "true"}">
@@ -286,9 +485,23 @@ export function renderCompanyModal(modalState, company) {
             <span class="eyebrow">Company Capture</span>
             <h3>${isEditing ? "Edit Sponsor Record" : "Add Sponsor Record"}</h3>
           </div>
-          <button type="button" class="ghost-button" data-action="close-modal">Close</button>
+          <div class="modal-header-actions">
+            <button type="button" class="ghost-button" data-action="toggle-modal-finder">
+              ${modalState.finderOpen ? "Hide Finder Panel" : "Open Finder Panel"}
+            </button>
+            <button type="button" class="ghost-button" data-action="close-modal">Close</button>
+          </div>
         </div>
         <div class="modal-layout">
+          ${
+            modalState.finderOpen
+              ? `
+                <div class="inline-message inline-message--warning modal-inline-note">
+                  Finder panel is open below. Close it any time to keep the company form uncluttered.
+                </div>
+              `
+              : ""
+          }
           <form id="company-form" class="form-grid modal-main">
             <input type="hidden" name="id" value="${escapeHtml(company.id || "")}" />
             <section class="finder-summary finder-summary--selected field--span-2">
@@ -329,7 +542,7 @@ export function renderCompanyModal(modalState, company) {
             <section class="finder-summary finder-summary--selected field--span-2">
               <div class="finder-section__head">
                 <strong>Saved Contacts For This Company</strong>
-                <span>Add as many as you want from the finder list on the right.</span>
+                <span>Add as many as you want from the finder panel below when you need it.</span>
               </div>
               ${renderSavedContactsList(savedContacts, selectedModalContact?.id || "")}
             </section>
@@ -382,7 +595,7 @@ export function renderCompanyModal(modalState, company) {
             </label>
             <label class="field">
               <span>Ask Value (GBP)</span>
-              <input name="askValue" type="number" min="0" step="100" value="${company.askValue || 0}" />
+              <input name="askValue" type="number" min="0" step="any" inputmode="decimal" value="${company.askValue || 0}" />
             </label>
             <label class="field">
               <span>Confirmed Value (GBP)</span>
@@ -390,7 +603,8 @@ export function renderCompanyModal(modalState, company) {
                 name="contributionValue"
                 type="number"
                 min="0"
-                step="100"
+                step="any"
+                inputmode="decimal"
                 value="${company.contributionValue || 0}"
               />
             </label>
@@ -497,213 +711,12 @@ export function renderCompanyModal(modalState, company) {
             }
             <div class="modal-actions">
               <button type="button" class="ghost-button" data-action="close-modal" ${isSaving ? "disabled" : ""}>Cancel</button>
-              <button
-                type="button"
-                class="primary-button"
-                data-action="save-company"
-                ${isSaving ? "disabled" : ""}
-              >${isSaving ? "Saving..." : "Save Company"}</button>
+              <button type="submit" class="primary-button" ${isSaving ? "disabled" : ""}>
+                ${isSaving ? "Saving..." : "Save Company"}
+              </button>
             </div>
           </form>
-          <aside class="modal-side">
-            <section class="panel panel--embedded finder-panel">
-              <div class="modal-header modal-header--inline">
-                <div>
-                  <span class="eyebrow">Finder</span>
-                  <h3>Find By Website / Company</h3>
-                </div>
-              </div>
-              <div class="finder-mode-toggle">
-                <button
-                  type="button"
-                  class="editor-tab ${modalState.researchMode === "website" ? "is-active" : ""}"
-                  data-action="set-research-mode"
-                  data-id="website"
-                >
-                  Website
-                </button>
-                <button
-                  type="button"
-                  class="editor-tab ${modalState.researchMode === "company" ? "is-active" : ""}"
-                  data-action="set-research-mode"
-                  data-id="company"
-                >
-                  Company
-                </button>
-              </div>
-              <div class="finder-workspace ${modalState.researchMode === "company" ? "finder-workspace--split" : ""}">
-                <div class="finder-workspace__controls">
-                  <div class="finder-inputs">
-                    <label class="field">
-                      <span>${primaryFinderLabel}</span>
-                      <input
-                        data-finder-field="finderCompanyName"
-                        placeholder="${primaryFinderPlaceholder}"
-                        value="${escapeHtml(modalState.finderCompanyName || "")}"
-                      />
-                    </label>
-                    ${
-                      isWebsiteMode
-                        ? `
-                          <label class="field">
-                            <span>Website URL</span>
-                            <input
-                              data-finder-field="finderWebsite"
-                              type="url"
-                              placeholder="https://company-site.com"
-                              value="${escapeHtml(modalState.finderWebsite || "")}"
-                            />
-                          </label>
-                        `
-                        : `
-                          <label class="field">
-                            <span>${contextLabel}</span>
-                            <input
-                              data-finder-field="finderContext"
-                              placeholder="${contextPlaceholder}"
-                              value="${escapeHtml(modalState.finderContext || "")}"
-                            />
-                          </label>
-                          <div class="finder-mode-toggle finder-mode-toggle--sub">
-                            <button
-                              type="button"
-                              class="editor-tab ${modalState.companySearchMode === "company" ? "is-active" : ""}"
-                              data-action="set-company-search-mode"
-                              data-id="company"
-                            >
-                              Company Names
-                            </button>
-                            <button
-                              type="button"
-                              class="editor-tab ${modalState.companySearchMode === "industry" ? "is-active" : ""}"
-                              data-action="set-company-search-mode"
-                              data-id="industry"
-                            >
-                              Industry
-                            </button>
-                          </div>
-                        `
-                    }
-                  </div>
-                  <p class="finder-help">
-                    ${finderHelpText}
-                  </p>
-                  <div class="finder-actions">
-                    <button
-                      type="button"
-                      class="primary-button primary-button--full"
-                      data-action="research-company"
-                      ${modalState.researchLoading ? "disabled" : ""}
-                    >
-                      ${modalState.researchLoading ? "Searching..." : "Run Finder"}
-                    </button>
-                    <button
-                      type="button"
-                      class="ghost-button primary-button--full"
-                      data-action="research-external"
-                      ${modalState.researchLoading ? "disabled" : ""}
-                    >
-                      Search External Sponsor Sources
-                    </button>
-                    ${
-                      researchResult
-                        ? `<button type="button" class="ghost-button primary-button--full" data-action="apply-research-suggestions">
-                            Apply Overall Suggestions
-                          </button>`
-                        : ""
-                    }
-                  </div>
-                  ${
-                    modalState.researchError
-                      ? `<div class="inline-message inline-message--danger">${escapeHtml(modalState.researchError)}</div>`
-                      : ""
-                  }
-                  ${
-                    researchWarnings.length
-                      ? `
-                        <div class="inline-message inline-message--warning">
-                          ${researchWarnings.map((warning) => escapeHtml(warning)).join("<br />")}
-                        </div>
-                      `
-                      : ""
-                  }
-                  ${
-                    modalState.researchMode === "company"
-                      ? renderSelectedCompanyCandidateDetail(selectedCompanyCandidate, selectedCompanyCandidateIsApplied)
-                      : researchResult
-                      ? `
-                        <div class="finder-summary">
-                          <strong>${escapeHtml(researchResult.website || researchResult.companyName || "Finder results")}</strong>
-                          <span>${escapeHtml(researchResult.summary || "No summary generated.")}</span>
-                        </div>
-                      `
-                      : `<p class="research-empty">Run the finder to build a selectable list of public emails and contact clues.</p>`
-                  }
-                </div>
-                ${
-                  modalState.researchMode === "company"
-                    ? `
-                      <div class="finder-workspace__results">
-                        <div class="finder-section">
-                          <div class="finder-section__head">
-                            <strong>Potential Companies</strong>
-                            <span>${escapeHtml(String(companyCandidates.length))}</span>
-                          </div>
-                          ${renderCompanyCandidateList(
-                            companyCandidates,
-                            selectedCompanyCandidate?.id || "",
-                            "preview-company-candidate",
-                            "View"
-                          )}
-                        </div>
-                      </div>
-                    `
-                    : ""
-                }
-              </div>
-              ${
-                researchResult?.website
-                  ? `
-                    <div class="finder-section">
-                      <div class="finder-section__head">
-                        <strong>Found Emails</strong>
-                        <span>${escapeHtml(String(researchCandidates.length))}</span>
-                      </div>
-                      ${renderResearchCandidateList(researchCandidates, "select-research-candidate", "Select")}
-                    </div>
-                  `
-                  : ""
-              }
-              <div class="finder-section">
-                <div class="finder-section__head">
-                  <strong>Completed</strong>
-                  <span>${escapeHtml(String(modalState.completedResearchEntries.length || 0))}</span>
-                </div>
-                ${
-                  modalState.completedResearchEntries.length
-                    ? renderResearchCandidateList(
-                        modalState.completedResearchEntries,
-                        "reopen-completed-research",
-                        "Amend"
-                      )
-                    : `<p class="research-empty">When you click Select on a result, it will move here so you can reopen and amend it later.</p>`
-                }
-              </div>
-              ${
-                researchResult
-                  ? `
-                    <div class="finder-section">
-                      <div class="finder-section__head">
-                        <strong>Suggested angle</strong>
-                        <span>${escapeHtml(researchResult.recommendedAskTypeLabel || "General")}</span>
-                      </div>
-                      <p class="finder-help">${escapeHtml(researchResult.personalization || "No personalisation ideas generated.")}</p>
-                    </div>
-                  `
-                  : ""
-              }
-            </section>
-          </aside>
+          ${modalState.finderOpen ? finderPanel : ""}
         </div>
       </div>
     </div>

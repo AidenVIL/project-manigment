@@ -37,11 +37,6 @@ export function renderAuthView({ config, loginError, mode = "login", setupUserna
                 : "Log in with your username and password to open the sponsor workspace."
             }
           </p>
-          <ul class="auth-points">
-            <li>Shared sponsor database via Supabase</li>
-            <li>Deployable static frontend on Render</li>
-            <li>Editable HTML email templates with company tokens</li>
-          </ul>
         </div>
         <form id="login-form" class="auth-form">
           <input type="hidden" name="mode" value="${isSetup ? "setup" : "login"}" />
@@ -65,6 +60,7 @@ export function renderAuthView({ config, loginError, mode = "login", setupUserna
               placeholder="Enter your username"
               value="${escapeHtml(setupUsername)}"
               ${isSetup ? "readonly" : "required"}
+              class="auth-username-input"
             />
           </label>
           ${
@@ -82,7 +78,7 @@ export function renderAuthView({ config, loginError, mode = "login", setupUserna
               : `
                 <label class="field">
                   <span>Password</span>
-                  <input type="password" name="password" placeholder="Enter your password" required />
+                  <input type="password" name="password" placeholder="Enter your password" required class="auth-password-input" />
                 </label>
               `
           }

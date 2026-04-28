@@ -126,13 +126,6 @@ const workspaceViews = [
     description: "Build master templates, spin up one-off drafts, and keep outreach copy consistent."
   },
   {
-    id: "intelligence",
-    label: "Atomic Intelligence",
-    eyebrow: "AI",
-    title: "AI command workspace",
-    description: "Run Pi-friendly AI chat, free web research, sponsor targeting, and saved strategic notes."
-  },
-  {
     id: "scrutineering",
     label: "Scrutineering",
     eyebrow: "Engineering",
@@ -179,7 +172,8 @@ const state = {
     selectedModalContactId: "",
     selectedCompanyCandidateId: "",
     appliedCompanyCandidateId: "",
-    completedResearchEntries: []
+    completedResearchEntries: [],
+    finderOpen: false
   },
   assistant: {
     open: false,
@@ -500,6 +494,7 @@ function resetModalResearchState() {
   state.modal.selectedCompanyCandidateId = "";
   state.modal.appliedCompanyCandidateId = "";
   state.modal.completedResearchEntries = [];
+  state.modal.finderOpen = false;
 }
 
 function applyResearchSuggestionsToDraft(result) {
@@ -1573,7 +1568,6 @@ function renderShell() {
             })
           : ""
       }
-      ${renderAssistantWidget()}
       ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}
     </div>
   `;
@@ -3000,6 +2994,10 @@ root.addEventListener("click", async (event) => {
       state.modal.selectedCompanyCandidateId = "";
       state.modal.appliedCompanyCandidateId = "";
       renderApp();
+      return;
+    case "toggle-modal-finder":
+      state.modal.finderOpen = !state.modal.finderOpen;
+      renderAppPreserveModalScroll();
       return;
     case "preview-company-candidate": {
       const candidate = state.modal.researchResult?.companyCandidates?.find((entry) => entry.id === id);
