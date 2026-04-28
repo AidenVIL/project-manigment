@@ -1550,6 +1550,62 @@ textarea {
   background: #f7fbf5;
 }
 
+.scrut-grid {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr;
+  gap: 1rem;
+}
+
+.scrut-left,
+.scrut-right {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.scrut-check__head {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-bottom: 0.6rem;
+}
+
+.scrut-check textarea {
+  width: 100%;
+  min-height: 72px;
+}
+
+.thanks-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 420px) 1fr;
+  gap: 1rem;
+}
+
+.thanks-preview-wrap {
+  width: 100%;
+  overflow: auto;
+  border: 1px solid var(--border-primary);
+  border-radius: 16px;
+  background: #f2f7ef;
+  padding: 0.75rem;
+}
+
+#thankyou-card-canvas {
+  width: 100%;
+  height: auto;
+  border-radius: 12px;
+  display: block;
+}
+
+@media (max-width: 1080px) {
+  .scrut-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .thanks-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;

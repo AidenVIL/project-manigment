@@ -28,6 +28,8 @@ import { renderAccountsView } from "./ui/views/accounts-view.js";
 import { renderTemplateEditorView } from "./ui/views/template-editor-view.js";
 import { renderEmailStudioView } from "./ui/views/template-hub-view.js";
 import { renderAtomicIntelligenceView } from "./ui/views/atomic-intelligence-view.js";
+import { renderScrutineeringView } from "./ui/views/scrutineering-view.js";
+import { renderThankYouCardsView } from "./ui/views/thank-you-cards-view.js";
 import { addDaysToInputDate } from "./utils/date-utils.js";
 import { escapeHtml } from "./utils/formatters.js";
 
@@ -92,6 +94,20 @@ const workspaceViews = [
     eyebrow: "AI",
     title: "AI command workspace",
     description: "Run Pi-friendly AI chat, free web research, sponsor targeting, and saved strategic notes."
+  },
+  {
+    id: "scrutineering",
+    label: "Scrutineering",
+    eyebrow: "Engineering",
+    title: "Scrutineering + engineering checks",
+    description: "Track compliance checks, tolerance limits, and quick engineering calculations before submission."
+  },
+  {
+    id: "thankyou",
+    label: "Thank You Cards",
+    eyebrow: "Branding",
+    title: "Atomic donor thank you cards",
+    description: "Create branded GoFundMe thank-you cards and save each one as a PNG."
   }
 ];
 
@@ -184,6 +200,34 @@ const state = {
     loading: false,
     error: "",
     messages: []
+  },
+  scrutineering: {
+    checks: [
+      { id: "dimensions", label: "Car dimensions checked against limits", done: false, notes: "" },
+      { id: "mass", label: "Mass within minimum/maximum constraints", done: false, notes: "" },
+      { id: "wheels", label: "Wheel/axle setup legal and secure", done: false, notes: "" },
+      { id: "body", label: "Body shell clearances and legality confirmed", done: false, notes: "" },
+      { id: "aero", label: "Aero elements legal and safely attached", done: false, notes: "" },
+      { id: "co2", label: "CO₂ cartridge chamber and fit checked", done: false, notes: "" },
+      { id: "finish", label: "Surface finish and safety standards met", done: false, notes: "" },
+      { id: "docs", label: "All required documentation complete", done: false, notes: "" }
+    ],
+    tolerance: {
+      nominal: 0,
+      actual: 0,
+      plusMinus: 0.1
+    },
+    density: {
+      massG: 0,
+      volumeMm3: 0
+    }
+  },
+  thankyou: {
+    recipientName: "Your Supporter",
+    donationAmount: "£25",
+    message: "Thank you for supporting Atomic. Your donation helps us design, test, and race at our best.",
+    fromName: "Atomic Team",
+    fromRole: "Partnerships Lead"
   }
 };
 
@@ -861,6 +905,26 @@ function showToast(message) {
   }, 2800);
 }
 
+function updateScrutineeringField(path, value) {
+  const [group, key] = String(path || "").split(".");
+  if (!group || !key || !state.scrutineering[group]) {
+    return;
+  }
+  state.scrutineering[group][key] = Number(value || 0);
+}
+
+function updateScrutineeringCheckNote(id, note) {
+  state.scrutineering.checks = state.scrutineering.checks.map((item) =>
+    item.id === id ? { ...item, notes: note } : item
+  );
+}
+
+function toggleScrutineeringCheck(id) {
+  state.scrutineering.checks = state.scrutineering.checks.map((item) =>
+    item.id === id ? { ...item, done: !item.done } : item
+  );
+}
+
 function consumeOauthFeedback() {
   const url = new URL(window.location.href);
   const gmailState = url.searchParams.get("gmail");
@@ -1365,7 +1429,11 @@ function renderShell() {
                   templates: state.templates,
                   drafts: state.drafts
                 })
-              : renderAtomicIntelligenceView(state.intelligence);
+              : activeView.id === "intelligence"
+                ? renderAtomicIntelligenceView(state.intelligence)
+                : activeView.id === "scrutineering"
+                  ? renderScrutineeringView(state.scrutineering)
+                  : renderThankYouCardsView(state.thankyou);
 
   return `
     <div class="site-layout">
@@ -1444,6 +1512,84 @@ function renderShell() {
       ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}
     </div>
   `;
+}
+
+function drawThankYouCard() {
+  const canvas = root.querySelector("#thankyou-card-canvas");
+  if (!canvas) {
+    return;
+  }
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    return;
+  }
+
+  const model = state.thankyou;
+  const w = canvas.width;
+  const h = canvas.height;
+
+  const bg = ctx.createLinearGradient(0, 0, w, h);
+  bg.addColorStop(0, "#07110a");
+  bg.addColorStop(1, "#12391d");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, w, h);
+
+  ctx.globalAlpha = 0.12;
+  ctx.fillStyle = "#9bff5f";
+  ctx.beginPath();
+  ctx.arc(w - 120, 120, 180, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(140, h - 80, 140, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  ctx.fillStyle = "#d8ffd2";
+  ctx.font = "600 24px Roobert, Arial, sans-serif";
+  ctx.fillText("ATOMIC", 72, 88);
+
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "700 58px Roobert, Arial, sans-serif";
+  ctx.fillText("Thank You", 72, 190);
+
+  ctx.font = "500 34px Roobert, Arial, sans-serif";
+  ctx.fillStyle = "#c5ffd6";
+  ctx.fillText(`To: ${model.recipientName || "Supporter"}`, 72, 250);
+
+  ctx.font = "700 42px Roobert, Arial, sans-serif";
+  ctx.fillStyle = "#9bff5f";
+  ctx.fillText(`${model.donationAmount || "£0"} donated`, 72, 310);
+
+  ctx.fillStyle = "#effff2";
+  ctx.font = "400 31px Roobert, Arial, sans-serif";
+  const text = String(model.message || "");
+  const maxWidth = w - 160;
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines = [];
+  let line = "";
+  for (const word of words) {
+    const test = line ? `${line} ${word}` : word;
+    if (ctx.measureText(test).width > maxWidth && line) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = test;
+    }
+  }
+  if (line) {
+    lines.push(line);
+  }
+  lines.slice(0, 4).forEach((ln, idx) => {
+    ctx.fillText(ln, 72, 380 + idx * 42);
+  });
+
+  ctx.fillStyle = "#d8ffd2";
+  ctx.font = "600 28px Roobert, Arial, sans-serif";
+  ctx.fillText(`- ${model.fromName || "Atomic Team"}`, 72, h - 110);
+  ctx.font = "400 24px Roobert, Arial, sans-serif";
+  ctx.fillStyle = "#b7f7c8";
+  ctx.fillText(model.fromRole || "Partnerships", 72, h - 72);
 }
 
 function renderAssistantWidget() {
@@ -1563,6 +1709,7 @@ function renderApp() {
   }
 
   root.innerHTML = renderShell();
+  drawThankYouCard();
 }
 
 function renderAppPreserveModalScroll() {
@@ -2653,6 +2800,27 @@ root.addEventListener("click", async (event) => {
       }
       renderApp();
       return;
+    case "toggle-scrut-check":
+      toggleScrutineeringCheck(id);
+      renderApp();
+      return;
+    case "download-thankyou-png": {
+      const canvas = root.querySelector("#thankyou-card-canvas");
+      if (!canvas) {
+        showToast("Card preview is not ready yet.");
+        return;
+      }
+      const link = document.createElement("a");
+      const recipient = String(state.thankyou.recipientName || "supporter")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+      link.download = `atomic-thankyou-${recipient || "card"}.png`;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+      showToast("Thank you card PNG saved.");
+      return;
+    }
     case "set-intelligence-tab":
       state.intelligence.activeTab = id || "chat";
       renderApp();
@@ -3095,6 +3263,24 @@ root.addEventListener("click", async (event) => {
 root.addEventListener("input", (event) => {
   if (event.target.id === "intelligence-chat-input") {
     state.intelligence.input = event.target.value;
+    return;
+  }
+
+  if (event.target.dataset.scrutField) {
+    updateScrutineeringField(event.target.dataset.scrutField, event.target.value);
+    renderApp();
+    return;
+  }
+
+  if (event.target.dataset.scrutNote) {
+    updateScrutineeringCheckNote(event.target.dataset.scrutNote, event.target.value);
+    return;
+  }
+
+  if (event.target.dataset.thanksField) {
+    const key = event.target.dataset.thanksField;
+    state.thankyou[key] = event.target.value;
+    drawThankYouCard();
     return;
   }
 
