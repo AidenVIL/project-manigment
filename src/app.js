@@ -14,6 +14,7 @@ import { buildDashboardSnapshot } from "./services/dashboard-service.js";
 import { draftService } from "./services/draft-service.js";
 import { gmailService } from "./services/gmail-service.js";
 import { companyResearchService } from "./services/company-research-service.js";
+import { projectPlanService } from "./services/project-plan-service.js";
 import { templateService } from "./services/template-service.js";
 import { supabaseService } from "./services/supabase-service.js";
 import { analyzeEmailWriting } from "./services/writing-coach-service.js";
@@ -28,6 +29,7 @@ import { renderAccountsView } from "./ui/views/accounts-view.js";
 import { renderTemplateEditorView } from "./ui/views/template-editor-view.js";
 import { renderEmailStudioView } from "./ui/views/template-hub-view.js";
 import { renderAtomicIntelligenceView } from "./ui/views/atomic-intelligence-view.js";
+import { renderProjectPlannerView } from "./ui/views/project-planner-view.js";
 import { renderScrutineeringView } from "./ui/views/scrutineering-view.js";
 import { renderThankYouCardsView } from "./ui/views/thank-you-cards-view.js";
 import { addDaysToInputDate } from "./utils/date-utils.js";
@@ -126,6 +128,13 @@ const workspaceViews = [
     description: "Build master templates, spin up one-off drafts, and keep outreach copy consistent."
   },
   {
+    id: "planner",
+    label: "Gantt Planner",
+    eyebrow: "Planning",
+    title: "Project timeline and Gantt chart",
+    description: "Build a task-based schedule with phases, milestones, ownership, and mark-scheme coverage."
+  },
+  {
     id: "scrutineering",
     label: "Scrutineering",
     eyebrow: "Engineering",
@@ -220,6 +229,11 @@ const state = {
       sending: false,
       error: ""
     }
+  },
+  projectPlan: {
+    projectName: "",
+    assessmentGoal: "",
+    tasks: []
   },
   workspaceView: "overview",
   preferredCompanyId: "",
@@ -366,6 +380,94 @@ function setWorkspaceView(viewId) {
   }
 
   state.workspaceView = viewId;
+}
+
+function saveProjectPlanState() {
+  state.projectPlan = projectPlanService.savePlan(state.projectPlan);
+}
+
+function sortProjectTasks(tasks = []) {
+  return [...tasks].sort((left, right) => {
+    const leftTime = new Date(left.startDate || "").getTime();
+    const rightTime = new Date(right.startDate || "").getTime();
+    const safeLeft = Number.isFinite(leftTime) ? leftTime : Number.MAX_SAFE_INTEGER;
+    const safeRight = Number.isFinite(rightTime) ? rightTime : Number.MAX_SAFE_INTEGER;
+    return safeLeft - safeRight;
+  });
+}
+
+function addProjectPlanTask() {
+  const tasks = Array.isArray(state.projectPlan.tasks) ? [...state.projectPlan.tasks] : [];
+  const lastEndDate = tasks[tasks.length - 1]?.endDate || new Date().toISOString().slice(0, 10);
+  const nextStartDate = new Date(lastEndDate || new Date().toISOString());
+  nextStartDate.setDate(nextStartDate.getDate() + 1);
+  const nextEndDate = new Date(nextStartDate);
+  nextEndDate.setDate(nextEndDate.getDate() + 7);
+
+  state.projectPlan.tasks = sortProjectTasks([
+    ...tasks,
+    {
+      id: crypto.randomUUID(),
+      title: "New task",
+      phase: "Planning",
+      owner: "Team",
+      startDate: nextStartDate.toISOString().slice(0, 10),
+      endDate: nextEndDate.toISOString().slice(0, 10),
+      progress: 0,
+      milestone: false,
+      markSchemeFocus: "General evidence",
+      notes: ""
+    }
+  ]);
+  saveProjectPlanState();
+}
+
+function deleteProjectPlanTask(taskId) {
+  state.projectPlan.tasks = sortProjectTasks(
+    (state.projectPlan.tasks || []).filter((task) => task.id !== taskId)
+  );
+  saveProjectPlanState();
+}
+
+function updateProjectPlanMeta(field, value) {
+  state.projectPlan = {
+    ...state.projectPlan,
+    [field]: value
+  };
+  saveProjectPlanState();
+}
+
+function updateProjectPlanTask(taskId, field, value) {
+  const nextTasks = (state.projectPlan.tasks || []).map((task) => {
+    if (task.id !== taskId) {
+      return task;
+    }
+
+    const nextTask = {
+      ...task,
+      [field]:
+        field === "progress"
+          ? Math.max(0, Math.min(100, Number(value || 0)))
+          : field === "milestone"
+            ? Boolean(value)
+            : value
+    };
+
+    const startTime = new Date(nextTask.startDate || 0).getTime();
+    const endTime = new Date(nextTask.endDate || 0).getTime();
+    if (Number.isFinite(startTime) && Number.isFinite(endTime) && endTime < startTime) {
+      if (field === "startDate") {
+        nextTask.endDate = nextTask.startDate;
+      } else if (field === "endDate") {
+        nextTask.startDate = nextTask.endDate;
+      }
+    }
+
+    return nextTask;
+  });
+
+  state.projectPlan.tasks = sortProjectTasks(nextTasks);
+  saveProjectPlanState();
 }
 
 function getFilteredCompanies() {
@@ -1506,6 +1608,8 @@ function renderShell() {
                   templates: state.templates,
                   drafts: state.drafts
                 })
+              : activeView.id === "planner"
+                ? renderProjectPlannerView(state.projectPlan)
               : activeView.id === "intelligence"
                 ? renderAtomicIntelligenceView(state.intelligence)
                 : activeView.id === "scrutineering"
@@ -1819,6 +1923,7 @@ async function loadAppData() {
 
     state.companies = companies;
     state.templates = templates;
+    state.projectPlan = projectPlanService.loadPlan();
     state.drafts = draftService.loadDrafts();
     const intelligenceHistory = atomicIntelligenceService.loadHistory();
     state.intelligence.messages = intelligenceHistory.length
@@ -2999,6 +3104,16 @@ root.addEventListener("click", async (event) => {
       state.modal.finderOpen = !state.modal.finderOpen;
       renderAppPreserveModalScroll();
       return;
+    case "add-gantt-task":
+      addProjectPlanTask();
+      renderApp();
+      showToast("Task added to the Gantt plan.");
+      return;
+    case "delete-gantt-task":
+      deleteProjectPlanTask(id);
+      renderApp();
+      showToast("Task removed from the Gantt plan.");
+      return;
     case "preview-company-candidate": {
       const candidate = state.modal.researchResult?.companyCandidates?.find((entry) => entry.id === id);
       if (!candidate) {
@@ -3336,6 +3451,11 @@ root.addEventListener("click", async (event) => {
       state.companies = [];
       state.templates = [];
       state.drafts = [];
+      state.projectPlan = {
+        projectName: "",
+        assessmentGoal: "",
+        tasks: []
+      };
       state.accounts.users = [];
       state.accounts.error = "";
       state.loginError = "";
@@ -3420,6 +3540,24 @@ root.addEventListener("input", (event) => {
     };
     renderApp();
     scheduleCompanySearchFocusRestore();
+    return;
+  }
+
+  if (event.target.dataset.ganttMeta) {
+    updateProjectPlanMeta(event.target.dataset.ganttMeta, event.target.value);
+    return;
+  }
+
+  if (event.target.dataset.ganttTaskId && event.target.dataset.ganttField) {
+    const ganttField = event.target.dataset.ganttField;
+    updateProjectPlanTask(
+      event.target.dataset.ganttTaskId,
+      ganttField,
+      event.target.value
+    );
+    if (["startDate", "endDate", "progress"].includes(ganttField)) {
+      renderApp();
+    }
     return;
   }
 
@@ -3589,6 +3727,16 @@ root.addEventListener("input", (event) => {
 });
 
 root.addEventListener("change", async (event) => {
+  if (event.target.dataset.ganttTaskId && event.target.dataset.ganttField === "milestone") {
+    updateProjectPlanTask(
+      event.target.dataset.ganttTaskId,
+      event.target.dataset.ganttField,
+      event.target.checked
+    );
+    renderApp();
+    return;
+  }
+
   if (event.target.id === "status-filter") {
     state.filters.status = event.target.value;
     renderApp();

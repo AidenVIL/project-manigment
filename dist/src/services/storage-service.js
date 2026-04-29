@@ -2,6 +2,7 @@ export const STORAGE_KEYS = {
   companies: "sponsor-command-centre.companies",
   templates: "sponsor-command-centre.templates",
   drafts: "sponsor-command-centre.drafts",
+  projectPlan: "sponsor-command-centre.project-plan",
   session: "sponsor-command-centre.session",
   accounts: "sponsor-command-centre.accounts"
 };
