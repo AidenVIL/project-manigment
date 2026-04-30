@@ -169,6 +169,129 @@ This gives you a public URL like: `https://abc123.ngrok.io`
 3. Access via your home public IP
 4. Get a free domain: https://duckdns.org
 
+### Option C: Cloudflare Tunnel (Best for School Networks + VPN)
+**This is what you need for Proton VPN access!**
+
+```bash
+# Install cloudflared on Pi
+wget https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64.deb
+sudo dpkg -i cloudflared-linux-arm64.deb
+
+# Login to Cloudflare (requires browser)
+cloudflared tunnel login
+
+# Create tunnel
+cloudflared tunnel create pi-tunnel
+
+# Create config file
+sudo nano /etc/cloudflared/config.yml
+```
+
+Add this config:
+```yaml
+tunnel: pi-tunnel
+credentials-file: /root/.cloudflared/pi-tunnel.json
+
+ingress:
+  - hostname: pi.morrisprints.co.uk
+    service: http://localhost:3000
+  - service: http_status:404
+```
+
+Then:
+```bash
+# Create DNS record (replace YOUR_ZONE_ID)
+cloudflared tunnel route dns pi-tunnel pi.morrisprints.co.uk
+
+# Start tunnel as service
+sudo cloudflared service install
+sudo systemctl enable cloudflared
+sudo systemctl start cloudflared
+
+# Check status
+sudo systemctl status cloudflared
+```
+
+**Access:** `https://pi.morrisprints.co.uk` (works with Proton VPN!)
+
+**Access:** `https://pi.morrisprints.co.uk` (works with Proton VPN!)
+
+### Option D: Tailscale VPN (Alternative)
+If Cloudflare doesn't work:
+
+```bash
+# Install Tailscale on Pi
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up
+
+# Install on your devices too
+# Then access via: http://pi:3000 (or whatever hostname you set)
+```
+
+---
+
+## School Network + VPN Access Issues
+
+**Problem:** School networks block direct connections, and Proton VPN changes your IP.
+
+**Solution:** Use Cloudflare Tunnel (recommended) or Tailscale.
+
+### Quick Cloudflare Tunnel Setup
+
+If you already have the domain `pi.morrisprints.co.uk`:
+
+```bash
+# SSH into your Pi using PowerShell:
+# ssh ubuntu@<your-pi-ip>
+
+# Download and run the setup script
+wget https://raw.githubusercontent.com/AidenVIL/project-manigment/main/setup-cloudflare-tunnel.sh
+chmod +x setup-cloudflare-tunnel.sh
+sudo ./setup-cloudflare-tunnel.sh
+```
+
+**Or do it manually:**
+
+```bash
+# On your Raspberry Pi (via PowerShell SSH)
+wget https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64.deb
+sudo dpkg -i cloudflared-linux-arm64.deb
+
+# Login (this opens browser - complete on another device if needed)
+cloudflared tunnel login
+
+# Create and configure tunnel
+cloudflared tunnel create school-tunnel
+sudo nano /etc/cloudflared/config.yml
+```
+
+Config file:
+```yaml
+tunnel: school-tunnel
+credentials-file: /root/.cloudflared/school-tunnel.json
+
+ingress:
+  - hostname: pi.morrisprints.co.uk
+    service: http://localhost:3000
+  - service: http_status:404
+```
+
+```bash
+# Set DNS and start
+cloudflared tunnel route dns school-tunnel pi.morrisprints.co.uk
+sudo cloudflared service install
+sudo systemctl enable cloudflared
+sudo systemctl start cloudflared
+```
+
+**Now access:** `https://pi.morrisprints.co.uk` from anywhere, even with Proton VPN!
+
+### Why This Works
+- Cloudflare Tunnel creates a secure connection FROM your Pi TO Cloudflare
+- Your school can't block it because it's outbound traffic
+- Proton VPN doesn't interfere because the tunnel is already established
+- The domain `pi.morrisprints.co.uk` resolves to Cloudflare's edge network
+
 ---
 
 ## Monitoring & Maintenance
