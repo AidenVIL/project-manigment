@@ -1,6 +1,7 @@
 import { escapeHtml, formatDate } from "../../utils/formatters.js";
 
 function renderMailboxHeader(mailbox) {
+  const canConnect = mailbox.connectEnabled !== false;
   return `
     <div class="section-header">
       <div>
@@ -15,7 +16,11 @@ function renderMailboxHeader(mailbox) {
               <button type="button" class="ghost-button ghost-button--danger" data-action="disconnect-gmail">Disconnect</button>
             `
             : `
-              <a href="${escapeHtml(mailbox.connectUrl)}" class="primary-button">Connect Gmail</a>
+              ${
+                canConnect
+                  ? `<a href="${escapeHtml(mailbox.connectUrl)}" class="primary-button">Connect Gmail</a>`
+                  : `<button type="button" class="primary-button" disabled>Connect Gmail</button>`
+              }
             `
         }
       </div>
@@ -114,6 +119,7 @@ function renderComposePanel(mailbox) {
 }
 
 export function renderMailboxView({ mailbox }) {
+  const canConnect = mailbox.connectEnabled !== false;
   return `
     <section id="mailbox" class="section-block">
       ${renderMailboxHeader(mailbox)}
@@ -162,8 +168,17 @@ export function renderMailboxView({ mailbox }) {
                   ? `<div class="inline-message inline-message--danger">${escapeHtml(mailbox.error)}</div>`
                   : ""
               }
+              ${
+                !canConnect
+                  ? `<p class="mail-compose-note">Gmail connect is disabled until the server has valid Google OAuth settings.</p>`
+                  : ""
+              }
               <div class="mailbox-actions">
-                <a href="${escapeHtml(mailbox.connectUrl)}" class="primary-button">Connect Gmail</a>
+                ${
+                  canConnect
+                    ? `<a href="${escapeHtml(mailbox.connectUrl)}" class="primary-button">Connect Gmail</a>`
+                    : `<button type="button" class="primary-button" disabled>Connect Gmail</button>`
+                }
               </div>
             </div>
           `

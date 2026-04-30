@@ -199,6 +199,7 @@ const state = {
     loading: false,
     connected: false,
     connectUrl: gmailService.getConnectUrl(),
+    connectEnabled: true,
     emailAddress: "",
     query: "",
     messages: [],
@@ -1966,10 +1967,14 @@ async function loadAppData() {
 
 async function init() {
   if (isPasswordGateEnabled()) {
-    await authService.signOut();
-    state.loading = false;
-    renderApp();
     await refreshSupabaseConnectionStatus();
+    if (!authService.isSignedIn()) {
+      state.loading = false;
+      renderApp();
+      return;
+    }
+
+    await loadAppData();
     return;
   }
 
@@ -2017,6 +2022,7 @@ async function loadMailboxStatus() {
     const status = await gmailService.loadStatus();
     state.mailbox.connected = Boolean(status.connected);
     state.mailbox.connectUrl = gmailService.getConnectUrl();
+    state.mailbox.connectEnabled = status.connectEnabled !== false;
     state.mailbox.emailAddress = status.emailAddress || "";
     state.mailbox.error = status.error || "";
 
@@ -2030,6 +2036,7 @@ async function loadMailboxStatus() {
     await loadMailboxMessages(false);
   } catch (error) {
     state.mailbox.connected = false;
+    state.mailbox.connectEnabled = false;
     state.mailbox.error = error.message || "Could not load mailbox status.";
   }
 }
@@ -2779,6 +2786,19 @@ async function handleCompanySubmit(form) {
   }
 }
 
+async function submitCompanyForm(form) {
+  if (!form || state.modal.saving) {
+    return;
+  }
+
+  if (!form.reportValidity()) {
+    showToast("Please fill in the required company fields.");
+    return;
+  }
+
+  await handleCompanySubmit(form);
+}
+
 async function runCompanyResearch() {
   const companyName = String(state.modal.finderCompanyName || state.modal.draft.companyName || "").trim();
   const website = String(state.modal.finderWebsite || "").trim();
@@ -3270,16 +3290,7 @@ root.addEventListener("click", async (event) => {
     }
     case "save-company": {
       const form = root.querySelector("#company-form");
-      if (!form || state.modal.saving) {
-        return;
-      }
-
-      if (!form.reportValidity()) {
-        showToast("Please fill in the required company fields.");
-        return;
-      }
-
-      await handleCompanySubmit(form);
+      await submitCompanyForm(form);
       return;
     }
     case "close-modal":
@@ -3352,6 +3363,7 @@ root.addEventListener("click", async (event) => {
         state.mailbox = {
           ...state.mailbox,
           connected: false,
+          connectEnabled: true,
           emailAddress: "",
           messages: [],
           selectedMessageId: "",
@@ -3970,7 +3982,7 @@ root.addEventListener("submit", async (event) => {
   }
 
   if (event.target.id === "company-form") {
-    await handleCompanySubmit(event.target);
+    await submitCompanyForm(event.target);
     return;
   }
 

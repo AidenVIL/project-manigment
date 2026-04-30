@@ -2631,15 +2631,28 @@ async function revokeStoredToken() {
 
 async function handleGmailStatus(response) {
   try {
+    const connectEnabled = Boolean(
+      runtimeSecrets.clientId && runtimeSecrets.clientSecret && runtimeSecrets.redirectUri
+    );
     const token = await getValidGmailToken();
     if (!token?.access_token) {
-      sendJson(response, 200, { connected: false });
+      sendJson(response, 200, {
+        connected: false,
+        connectEnabled,
+        ...(connectEnabled
+          ? {}
+          : {
+              error:
+                "Missing Google OAuth settings. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REDIRECT_URI."
+            })
+      });
       return;
     }
 
     const profile = await getGmailProfile();
     sendJson(response, 200, {
       connected: true,
+      connectEnabled,
       emailAddress: profile.emailAddress,
       messagesTotal: profile.messagesTotal,
       threadsTotal: profile.threadsTotal
@@ -2647,6 +2660,9 @@ async function handleGmailStatus(response) {
   } catch (error) {
     sendJson(response, 200, {
       connected: false,
+      connectEnabled: Boolean(
+        runtimeSecrets.clientId && runtimeSecrets.clientSecret && runtimeSecrets.redirectUri
+      ),
       error: error.message
     });
   }

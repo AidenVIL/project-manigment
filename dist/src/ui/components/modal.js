@@ -711,7 +711,7 @@ export function renderCompanyModal(modalState, company) {
             }
             <div class="modal-actions">
               <button type="button" class="ghost-button" data-action="close-modal" ${isSaving ? "disabled" : ""}>Cancel</button>
-              <button type="submit" class="primary-button" ${isSaving ? "disabled" : ""}>
+              <button type="button" class="primary-button" data-action="save-company" ${isSaving ? "disabled" : ""}>
                 ${isSaving ? "Saving..." : "Save Company"}
               </button>
             </div>
