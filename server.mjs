@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { extname, join, normalize, resolve } from "node:path";
 import crypto from "node:crypto";
 import dotenv from "dotenv";
+import OpenAI from "openai";
 
 // Load .env file for Raspberry Pi and local development
 dotenv.config();
@@ -11,6 +12,10 @@ dotenv.config();
 const distDir = resolve(process.cwd(), "dist");
 const port = Number(process.env.PORT || 3000);
 const buildVersion = new Date().toISOString().split("T")[0];
+const openaiApiKey = (process.env.OPENAI_API_KEY || "").trim();
+const openaiModel = "gpt-5.4-mini";
+const openaiChatMaxMessageLength = 4000;
+const openai = openaiApiKey ? new OpenAI({ apiKey: openaiApiKey }) : null;
 
 // Startup diagnostics
 function logStartupDiagnostics() {
@@ -29,6 +34,7 @@ function logStartupDiagnostics() {
   console.log(`  Supabase anon key: ${supabaseAnonKey ? "✓ configured" : "✗ missing"}`);
   console.log(`  Supabase service key: ${supabaseServiceKey ? "✓ configured" : "✗ missing (optional for API-only mode)"}`);
   console.log(`  Gmail account: ${process.env.GMAIL_ACCOUNT_EMAIL ? "✓ configured" : "✗ missing"}`);
+  console.log(`  OpenAI key: ${openaiApiKey ? "configured" : "missing (required for /api/chat)"}`);
   console.log(`  Site password: ${process.env.PUBLIC_SITE_PASSWORD ? "✓ configured" : "✗ missing"}`);
   console.log(`  Cloudflare token: ${process.env.CLOUDFLARE_API_TOKEN ? "✓ configured" : "✗ missing (optional)"}`);
   console.log("");
@@ -224,6 +230,185 @@ async function readJsonBody(request) {
   }
 
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+}
+
+async function readJsonBodyWithLimit(request, maxBytes = 16 * 1024) {
+  const chunks = [];
+  let totalBytes = 0;
+
+  for await (const chunk of request) {
+    totalBytes += chunk.length;
+    if (totalBytes > maxBytes) {
+      throw new Error(`Request body must be ${maxBytes} bytes or less.`);
+    }
+    chunks.push(chunk);
+  }
+
+  if (!chunks.length) {
+    return {};
+  }
+
+  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+}
+
+function shouldUseOpenAIWebSearch(message = "") {
+  const normalized = String(message || "").toLowerCase();
+  const searchSignals = [
+    /\b(current|latest|today|official|public|recent|up[- ]to[- ]date)\b/,
+    /\bcontact\b/,
+    /\bemail\b/,
+    /\bsponsorship\b/,
+    /\bpartner(ship)?\b/,
+    /\bcareers?\b/,
+    /\boutreach\b/,
+    /\breach out\b/,
+    /\bcontact page\b/,
+    /\bpartnership page\b/,
+    /\bwho should i contact\b/,
+    /\bwebsite\b/,
+    /https?:\/\//
+  ];
+
+  return searchSignals.some((pattern) => pattern.test(normalized));
+}
+
+function escapeMarkdownLinkText(value = "") {
+  return String(value || "").replace(/\\/g, "\\\\").replace(/\]/g, "\\]");
+}
+
+function collectOpenAIWebSources(response) {
+  const seen = new Map();
+
+  const addSource = (source) => {
+    const url = String(source?.url || "").trim();
+    if (!url || seen.has(url)) {
+      return;
+    }
+
+    seen.set(url, {
+      title: String(source?.title || url).trim(),
+      url
+    });
+  };
+
+  const walk = (value) => {
+    if (!value || typeof value !== "object") {
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      value.forEach(walk);
+      return;
+    }
+
+    if (value.type === "url_citation") {
+      addSource(value);
+    }
+
+    if (Array.isArray(value.sources)) {
+      value.sources.forEach(addSource);
+    }
+
+    if (value.action && Array.isArray(value.action.sources)) {
+      value.action.sources.forEach(addSource);
+    }
+
+    Object.values(value).forEach(walk);
+  };
+
+  walk(response?.output || []);
+  return Array.from(seen.values());
+}
+
+function formatReplyWithSources(reply, sources = []) {
+  const cleanReply = String(reply || "").trim();
+  if (!sources.length) {
+    return cleanReply;
+  }
+
+  const sourceLines = sources.slice(0, 5).map((source, index) => {
+    const title = escapeMarkdownLinkText(source.title || `Source ${index + 1}`);
+    return `- [${title}](${source.url})`;
+  });
+
+  return `${cleanReply}\n\nSources:\n${sourceLines.join("\n")}`;
+}
+
+function getOpenAIChatErrorDetails(error) {
+  const status = Number(error?.status || 0);
+
+  if (status === 401) {
+    return {
+      statusCode: 502,
+      message: "OpenAI authentication failed. Check OPENAI_API_KEY on the server."
+    };
+  }
+
+  if (status === 429) {
+    return {
+      statusCode: 429,
+      message: "OpenAI rate limit reached. Please try again in a moment."
+    };
+  }
+
+  if (status >= 500) {
+    return {
+      statusCode: 502,
+      message: "OpenAI is temporarily unavailable. Please try again shortly."
+    };
+  }
+
+  return {
+    statusCode: 500,
+    message: String(error?.message || "The assistant could not complete that request.")
+  };
+}
+
+async function generateOpenAIChatReply(message) {
+  if (!openai) {
+    throw new Error("OPENAI_API_KEY is not configured on the server.");
+  }
+
+  const cleanMessage = String(message || "").trim();
+  const requiresWebSearch = shouldUseOpenAIWebSearch(cleanMessage);
+  const prompt = [
+    "You are a concise team sponsorship research helper for a student racing team.",
+    "Help identify the best public outreach route for a company.",
+    "Focus on whether the company appears to have:",
+    "- a direct contact email",
+    "- a sponsorship email",
+    "- a partnerships page",
+    "- a careers or contact page",
+    "- another practical outreach route",
+    "When current company or contact information is needed, use web search and base the answer on public sources.",
+    "If no direct sponsorship route is visible, say the best fallback route and why.",
+    "Keep the answer concise and useful."
+  ].join("\n");
+
+  const response = await openai.responses.create({
+    model: openaiModel,
+    reasoning: { effort: "low" },
+    tools: [
+      {
+        type: "web_search",
+        search_context_size: "low"
+      }
+    ],
+    tool_choice: requiresWebSearch ? "required" : "auto",
+    include: ["web_search_call.action.sources"],
+    max_output_tokens: 500,
+    input: `${prompt}\n\nUser request:\n${cleanMessage}`
+  });
+
+  const reply = String(response.output_text || "").trim();
+  if (!reply) {
+    throw new Error("OpenAI returned an empty reply.");
+  }
+
+  const sources = collectOpenAIWebSources(response);
+  return {
+    reply: formatReplyWithSources(reply, sources)
+  };
 }
 
 function readStoredToken() {
@@ -2791,6 +2976,48 @@ async function handleRequest(request, response) {
       sendJson(response, 200, { ok: true });
     } catch (error) {
       sendJson(response, 500, { error: error.message });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/chat") {
+    try {
+      const body = await readJsonBodyWithLimit(request);
+      const message = typeof body?.message === "string" ? body.message.trim() : "";
+
+      if (!message) {
+        sendJson(response, 400, { error: "Message is required." });
+        return;
+      }
+
+      if (message.length > openaiChatMaxMessageLength) {
+        sendJson(response, 400, {
+          error: `Message must be ${openaiChatMaxMessageLength} characters or fewer.`
+        });
+        return;
+      }
+
+      const result = await generateOpenAIChatReply(message);
+      sendJson(response, 200, { reply: result.reply });
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        sendJson(response, 400, { error: "Request body must be valid JSON." });
+        return;
+      }
+
+      if (error.message === "OPENAI_API_KEY is not configured on the server.") {
+        sendJson(response, 503, { error: error.message });
+        return;
+      }
+
+      if (/Request body must be \d+ bytes or less\./.test(String(error?.message || ""))) {
+        sendJson(response, 413, { error: error.message });
+        return;
+      }
+
+      console.error("OpenAI chat error:", error);
+      const { statusCode, message } = getOpenAIChatErrorDetails(error);
+      sendJson(response, statusCode, { error: message });
     }
     return;
   }
