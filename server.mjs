@@ -81,7 +81,10 @@ const persistentDir = resolve(
   ".atomic-runtime"
 );
 const gmailTokenPath = resolve(persistentDir, "gmail-token.json");
+const assistantHistoryDir = resolve(persistentDir, "assistant-history");
+const assistantHistoryPath = resolve(assistantHistoryDir, "conversations.json");
 mkdirSync(persistentDir, { recursive: true });
+mkdirSync(assistantHistoryDir, { recursive: true });
 
 function setSecurityHeaders(response) {
   response.setHeader("X-Content-Type-Options", "nosniff");
@@ -291,6 +294,70 @@ async function readJsonBodyWithLimit(request, maxBytes = 16 * 1024) {
   }
 
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+}
+
+function readAssistantHistoryStore() {
+  if (!existsSync(assistantHistoryPath)) {
+    return [];
+  }
+
+  try {
+    const raw = readFileSync(assistantHistoryPath, "utf8");
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    console.warn("Could not read assistant history store.", error);
+    return [];
+  }
+}
+
+function sanitizeAssistantConversation(input = {}) {
+  const messages = Array.isArray(input.messages)
+    ? input.messages
+        .map((message) => ({
+          role: message?.role === "user" ? "user" : "assistant",
+          text: String(message?.text || "").trim().slice(0, 12000)
+        }))
+        .filter((message) => message.text)
+        .slice(0, 120)
+    : [];
+
+  const firstUserMessage = messages.find((message) => message.role === "user")?.text || "";
+  const title = String(input.title || firstUserMessage || "Atomic AI chat")
+    .trim()
+    .slice(0, 120);
+  const createdAt = String(input.createdAt || "").trim() || new Date().toISOString();
+
+  return {
+    id: String(input.id || crypto.randomUUID()).trim(),
+    title: title || "Atomic AI chat",
+    createdAt,
+    updatedAt: new Date().toISOString(),
+    source: "assistant-widget",
+    messages
+  };
+}
+
+function writeAssistantHistoryStore(conversations = []) {
+  writeFileSync(assistantHistoryPath, JSON.stringify(conversations, null, 2), "utf8");
+}
+
+function saveAssistantConversation(input = {}) {
+  const conversation = sanitizeAssistantConversation(input);
+  if (!conversation.messages.some((message) => message.role === "user")) {
+    return readAssistantHistoryStore();
+  }
+
+  const current = readAssistantHistoryStore();
+  const next = current.filter((entry) => entry.id !== conversation.id);
+  const existing = current.find((entry) => entry.id === conversation.id);
+  next.unshift({
+    ...conversation,
+    createdAt: existing?.createdAt || conversation.createdAt
+  });
+  const trimmed = next.slice(0, 200);
+  writeAssistantHistoryStore(trimmed);
+  return trimmed;
 }
 
 function shouldUseOpenAIWebSearch(message = "") {
@@ -3174,6 +3241,35 @@ async function handleRequest(request, response) {
       console.error("OpenAI chat error:", error);
       const { statusCode, message } = getOpenAIChatErrorDetails(error);
       sendJson(response, statusCode, { error: message });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/assistant-history") {
+    sendJson(response, 200, {
+      conversations: readAssistantHistoryStore()
+    });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/assistant-history") {
+    try {
+      const body = await readJsonBodyWithLimit(request, 512 * 1024);
+      const conversations = saveAssistantConversation(body || {});
+      sendJson(response, 200, { conversations });
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        sendJson(response, 400, { error: "Request body must be valid JSON." });
+        return;
+      }
+
+      if (/Request body must be \d+ bytes or less\./.test(String(error?.message || ""))) {
+        sendJson(response, 413, { error: error.message });
+        return;
+      }
+
+      console.error("Assistant history error:", error);
+      sendJson(response, 500, { error: "Could not save assistant history." });
     }
     return;
   }

@@ -2496,9 +2496,9 @@ textarea {
   max-width: calc(100vw - 1.8rem);
   max-height: calc(100vh - 6rem);
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto minmax(12rem, 1fr) auto auto auto;
   gap: 0.75rem;
-  overflow: auto;
+  overflow: hidden;
   resize: both;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
@@ -2621,6 +2621,75 @@ textarea {
   margin: 0;
   color: var(--muted);
   line-height: 1.55;
+}
+
+.chat-history-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  gap: 1rem;
+}
+
+.chat-history-list,
+.chat-history-viewer {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.chat-history-list {
+  align-content: start;
+}
+
+.chat-history-item {
+  display: grid;
+  gap: 0.3rem;
+  text-align: left;
+  padding: 0.9rem 1rem;
+  border-radius: 18px;
+  border: 1px solid rgba(22, 49, 26, 0.08);
+  background: #fbfef9;
+}
+
+.chat-history-item.is-active {
+  border-color: rgba(50, 206, 50, 0.24);
+  background: rgba(50, 206, 50, 0.08);
+}
+
+.chat-history-item span,
+.chat-history-item small,
+.chat-history-message p {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.chat-history-thread {
+  display: grid;
+  gap: 0.75rem;
+  max-height: 70vh;
+  overflow: auto;
+  padding-right: 0.25rem;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.chat-history-message {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.9rem 1rem;
+  border-radius: 18px;
+  border: 1px solid rgba(22, 49, 26, 0.08);
+}
+
+.chat-history-message--assistant {
+  background: #f5fbf2;
+}
+
+.chat-history-message--user {
+  background: rgba(50, 206, 50, 0.08);
+}
+
+.chat-history-message p {
+  margin: 0;
+  white-space: pre-wrap;
 }
 
 .assistant-widget__form {
@@ -3036,6 +3105,10 @@ textarea {
 
   .assistant-widget__panel {
     width: min(100vw - 1.2rem, 440px);
+  }
+
+  .chat-history-grid {
+    grid-template-columns: 1fr;
   }
 
   .assistant-widget__form {

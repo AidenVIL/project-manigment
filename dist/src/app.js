@@ -18,8 +18,10 @@ import { projectPlanService } from "./services/project-plan-service.js";
 import { templateService } from "./services/template-service.js";
 import { supabaseService } from "./services/supabase-service.js";
 import { analyzeEmailWriting } from "./services/writing-coach-service.js";
+import { assistantHistoryService } from "./services/assistant-history-service.js";
 import { renderCompanyModal } from "./ui/components/modal.js";
 import { renderFollowUpWorkflowModal } from "./ui/components/follow-up-workflow-modal.js";
+import { renderAssistantHistoryView } from "./ui/views/assistant-history-view.js";
 import { renderAuthView } from "./ui/views/auth-view.js";
 import { renderCalendarView } from "./ui/views/calendar-view.js";
 import { renderCompaniesView } from "./ui/views/companies-view.js";
@@ -142,6 +144,13 @@ const workspaceViews = [
     description: "Track compliance checks, tolerance limits, and quick engineering calculations before submission."
   },
   {
+    id: "ai-history",
+    label: "AI History",
+    eyebrow: "Atomic AI",
+    title: "Saved Atomic AI chats",
+    description: "Review earlier assistant conversations saved on the server and reload them when needed."
+  },
+  {
     id: "thankyou",
     label: "Thank You Cards",
     eyebrow: "Branding",
@@ -186,6 +195,7 @@ const state = {
   },
   assistant: {
     open: true,
+    conversationId: crypto.randomUUID(),
     input: "",
     loading: false,
     messages: [
@@ -195,6 +205,12 @@ const state = {
           "Hi, I’m Atomic AI. Ask me anything about sponsor research, outreach, emails, planning, or a company you want to contact."
       }
     ]
+  },
+  assistantHistory: {
+    loading: false,
+    error: "",
+    conversations: [],
+    selectedId: ""
   },
   mailbox: {
     loading: false,
@@ -593,6 +609,66 @@ function upsertCompanyInState(company) {
 
     return left.companyName.localeCompare(right.companyName);
   });
+}
+
+function getAssistantConversationTitle(messages = state.assistant.messages) {
+  const firstUserMessage = (messages || []).find((message) => message.role === "user")?.text || "";
+  const clean = String(firstUserMessage || "").trim();
+  if (!clean) {
+    return "Atomic AI chat";
+  }
+
+  return clean.length > 72 ? `${clean.slice(0, 69)}...` : clean;
+}
+
+async function saveAssistantConversationSnapshot() {
+  const messages = Array.isArray(state.assistant.messages)
+    ? state.assistant.messages.map((message) => ({
+        role: message.role === "user" ? "user" : "assistant",
+        text: String(message.text || "")
+      }))
+    : [];
+
+  if (!messages.some((message) => message.role === "user")) {
+    return;
+  }
+
+  const payload = {
+    id: state.assistant.conversationId,
+    title: getAssistantConversationTitle(messages),
+    messages
+  };
+
+  const result = await assistantHistoryService.saveConversation(payload);
+  state.assistantHistory.conversations = Array.isArray(result?.conversations)
+    ? result.conversations
+    : state.assistantHistory.conversations;
+  if (!state.assistantHistory.selectedId) {
+    state.assistantHistory.selectedId = payload.id;
+  }
+}
+
+async function loadAssistantHistory({ preserveSelection = true } = {}) {
+  state.assistantHistory.loading = true;
+  state.assistantHistory.error = "";
+  renderApp();
+
+  try {
+    const conversations = await assistantHistoryService.loadConversations();
+    state.assistantHistory.conversations = conversations;
+    if (
+      !preserveSelection ||
+      !state.assistantHistory.selectedId ||
+      !conversations.some((conversation) => conversation.id === state.assistantHistory.selectedId)
+    ) {
+      state.assistantHistory.selectedId = conversations[0]?.id || "";
+    }
+  } catch (error) {
+    state.assistantHistory.error = error.message || "Could not load saved AI chats.";
+  } finally {
+    state.assistantHistory.loading = false;
+    renderApp();
+  }
 }
 
 function resetModalResearchState() {
@@ -1368,6 +1444,9 @@ async function handleAssistantQuestion(question = "") {
       role: "assistant",
       text: actionResult ? `${replyText}\n\n${actionResult.message}` : replyText
     });
+    await saveAssistantConversationSnapshot().catch((error) => {
+      console.warn("Could not save assistant chat history.", error);
+    });
   } catch (error) {
     const fallback = askCompanyAssistant({
       question: cleanQuestion,
@@ -1379,6 +1458,9 @@ async function handleAssistantQuestion(question = "") {
     state.assistant.messages.push({
       role: "assistant",
       text: actionResult ? `${fallbackText}\n\n${actionResult.message}` : fallbackText
+    });
+    await saveAssistantConversationSnapshot().catch((saveError) => {
+      console.warn("Could not save assistant chat history.", saveError);
     });
   } finally {
     state.assistant.loading = false;
@@ -2044,10 +2126,12 @@ function renderShell() {
                   templates: state.templates,
                   drafts: state.drafts
                 })
-              : activeView.id === "planner"
-                ? renderProjectPlannerView(state.projectPlan)
-              : activeView.id === "intelligence"
-                ? renderAtomicIntelligenceView(state.intelligence)
+        : activeView.id === "planner"
+          ? renderProjectPlannerView(state.projectPlan)
+          : activeView.id === "ai-history"
+            ? renderAssistantHistoryView(state.assistantHistory)
+          : activeView.id === "intelligence"
+            ? renderAtomicIntelligenceView(state.intelligence)
                 : activeView.id === "scrutineering"
                   ? renderScrutineeringView(state.scrutineering, getActiveScrutineeringCar())
                   : renderThankYouCardsView(state.thankyou);
@@ -2236,6 +2320,9 @@ function renderAssistantWidget() {
                   <strong>Atomic AI</strong>
                   <span>Research, outreach, email help</span>
                 </div>
+                <button type="button" class="ghost-button ghost-button--compact" data-action="open-assistant-history">
+                  Saved chats
+                </button>
               </div>
               <div class="assistant-widget__messages">
                 ${assistant.messages
@@ -3513,8 +3600,40 @@ root.addEventListener("click", async (event) => {
       if (id === "accounts") {
         await loadAccounts(false);
       }
+      if (id === "ai-history") {
+        await loadAssistantHistory({ preserveSelection: true });
+      }
       renderApp();
       return;
+    case "open-assistant-history":
+      setWorkspaceView("ai-history");
+      await loadAssistantHistory({ preserveSelection: true });
+      return;
+    case "refresh-assistant-history":
+      await loadAssistantHistory({ preserveSelection: true });
+      return;
+    case "open-assistant-history-conversation":
+      state.assistantHistory.selectedId = id;
+      renderApp();
+      return;
+    case "load-assistant-history-into-chat": {
+      const conversation = state.assistantHistory.conversations.find((entry) => entry.id === id);
+      if (!conversation) {
+        return;
+      }
+
+      state.assistant.messages = Array.isArray(conversation.messages)
+        ? conversation.messages.map((message) => ({
+            role: message.role === "user" ? "user" : "assistant",
+            text: String(message.text || "")
+          }))
+        : state.assistant.messages;
+      state.assistant.conversationId = conversation.id || crypto.randomUUID();
+      state.assistant.open = true;
+      showToast("Saved AI chat loaded into Atomic AI.");
+      renderApp();
+      return;
+    }
     case "toggle-scrut-check":
       toggleScrutineeringCheck(id);
       renderApp();

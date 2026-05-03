@@ -1,4 +1,4 @@
-import { escapeHtml } from "../../utils/formatters.js";
+import { escapeHtml, formatDate } from "../../utils/formatters.js";
 
 function renderMarkdown(text = "") {
   const escaped = escapeHtml(String(text || ""));
@@ -16,6 +16,24 @@ function renderMarkdown(text = "") {
   return paragraphs.join("");
 }
 
+function renderConversationItem(conversation = {}, selectedId = "") {
+  const firstUser = (conversation.messages || []).find((message) => message.role === "user")?.text || "New AI chat";
+  const preview = `${String(firstUser || "").slice(0, 80)}`;
+
+  return `
+    <button
+      type="button"
+      class="chat-history-item ${conversation.id === selectedId ? "is-active" : ""}"
+      data-action="open-intelligence-conversation"
+      data-id="${escapeHtml(conversation.id || "")}"
+    >
+      <strong>${escapeHtml(conversation.title || "New AI chat")}</strong>
+      <span>${escapeHtml(preview)}</span>
+      <small>${escapeHtml(formatDate(conversation.updatedAt || conversation.createdAt))}</small>
+    </button>
+  `;
+}
+
 function renderMessage(message = {}) {
   return `
     <article class="intel-chat__message intel-chat__message--${escapeHtml(message.role || "assistant")}">
@@ -28,7 +46,12 @@ function renderMessage(message = {}) {
 
 export function renderAtomicIntelligenceView(intelligenceState = {}) {
   const messages = Array.isArray(intelligenceState.messages) ? intelligenceState.messages : [];
+  const conversations = Array.isArray(intelligenceState.conversations) ? intelligenceState.conversations : [];
   const activeTab = intelligenceState.activeTab || "chat";
+  const activeConversation = conversations.find((entry) => entry.id === intelligenceState.activeConversationId) || {
+    title: "New AI chat",
+    messages
+  };
 
   return `
     <section id="atomic-intelligence" class="section-block">
@@ -67,36 +90,58 @@ export function renderAtomicIntelligenceView(intelligenceState = {}) {
       ${
         activeTab === "chat"
           ? `
-            <div class="intel-chat panel">
-              <div class="intel-chat__header">
-                <strong>Atomic AI Chat</strong>
-                <div class="intel-chat__actions">
-                  <button type="button" class="ghost-button" data-action="intelligence-clear-chat">Clear Chat</button>
-                </div>
-              </div>
-              <div class="intel-chat__messages">
-                ${messages.length ? messages.map(renderMessage).join("") : "<p class='muted-copy'>Start by asking about a company, sponsor strategy, or latest industry news.</p>"}
-                ${intelligenceState.loading ? "<div class='intel-chat__typing'>Thinking...</div>" : ""}
-              </div>
-              <form id="intelligence-chat-form" class="intel-chat__form">
-                <textarea
-                  id="intelligence-chat-input"
-                  name="question"
-                  rows="3"
-                  placeholder="Ask: 'Find likely UK STEM sponsors in automotive software' or 'Summarise AMD sponsorship potential'"
-                  ${intelligenceState.loading ? "disabled" : ""}
-                >${escapeHtml(intelligenceState.input || "")}</textarea>
-                <div class="intel-chat__form-actions">
-                  <button type="submit" class="primary-button" ${intelligenceState.loading ? "disabled" : ""}>
-                    ${intelligenceState.loading ? "Running..." : "Send"}
+            <div class="chat-history-grid">
+              <section class="panel chat-history-list">
+                <div class="section-header">
+                  <div>
+                    <strong>Previous chats</strong>
+                    <p class="muted-copy">Select an existing conversation or start a fresh AI session.</p>
+                  </div>
+                  <button type="button" class="primary-button primary-button--compact" data-action="new-intelligence-conversation">
+                    New chat
                   </button>
                 </div>
-              </form>
-              ${
-                intelligenceState.error
-                  ? `<p class="status-text status-text--error">${escapeHtml(intelligenceState.error)}</p>`
-                  : ""
-              }
+                ${
+                  conversations.length
+                    ? conversations.map((conversation) => renderConversationItem(conversation, intelligenceState.activeConversationId)).join("")
+                    : `<p class="muted-copy">No previous chats yet. Start one by asking a question.</p>`
+                }
+              </section>
+
+              <section class="intel-chat panel">
+                <div class="intel-chat__header">
+                  <div>
+                    <strong>${escapeHtml(activeConversation.title || "New AI chat")}</strong>
+                    <p class="muted-copy">${escapeHtml(activeConversation.updatedAt ? formatDate(activeConversation.updatedAt) : "New conversation")}</p>
+                  </div>
+                  <div class="intel-chat__actions">
+                    <button type="button" class="ghost-button" data-action="intelligence-clear-chat">Clear Chat</button>
+                  </div>
+                </div>
+                <div class="intel-chat__messages">
+                  ${messages.length ? messages.map(renderMessage).join("") : "<p class='muted-copy'>Start by asking about a company, sponsor strategy, or latest industry news.</p>"}
+                  ${intelligenceState.loading ? "<div class='intel-chat__typing'>Thinking...</div>" : ""}
+                </div>
+                <form id="intelligence-chat-form" class="intel-chat__form">
+                  <textarea
+                    id="intelligence-chat-input"
+                    name="question"
+                    rows="3"
+                    placeholder="Ask: 'Find likely UK STEM sponsors in automotive software' or 'Summarise AMD sponsorship potential'"
+                    ${intelligenceState.loading ? "disabled" : ""}
+                  >${escapeHtml(intelligenceState.input || "")}</textarea>
+                  <div class="intel-chat__form-actions">
+                    <button type="submit" class="primary-button" ${intelligenceState.loading ? "disabled" : ""}>
+                      ${intelligenceState.loading ? "Running..." : "Send"}
+                    </button>
+                  </div>
+                </form>
+                ${
+                  intelligenceState.error
+                    ? `<p class="status-text status-text--error">${escapeHtml(intelligenceState.error)}</p>`
+                    : ""
+                }
+              </section>
             </div>
           `
           : `

@@ -1,4 +1,5 @@
 const HISTORY_KEY = "atomic_intelligence_chat_history_v1";
+const CONVERSATIONS_KEY = "atomic_intelligence_conversations_v1";
 
 function safeJson(value, fallback) {
   try {
@@ -6,6 +7,10 @@ function safeJson(value, fallback) {
   } catch {
     return fallback;
   }
+}
+
+function ensureArray(value, fallback = []) {
+  return Array.isArray(value) ? value : fallback;
 }
 
 export const atomicIntelligenceService = {
@@ -27,6 +32,29 @@ export const atomicIntelligenceService = {
     } catch {
       // Ignore storage failures.
     }
+  },
+  loadConversations() {
+    const raw = localStorage.getItem(CONVERSATIONS_KEY);
+    const parsed = safeJson(raw || "[]", []);
+    return ensureArray(parsed, []);
+  },
+  saveConversations(conversations = []) {
+    try {
+      localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(ensureArray(conversations, [])));
+    } catch {
+      // Ignore storage failures in private mode/quota limits.
+    }
+  },
+  saveConversation(conversation = {}) {
+    const conversations = this.loadConversations();
+    const existingIndex = conversations.findIndex((entry) => entry.id === conversation.id);
+    if (existingIndex > -1) {
+      conversations[existingIndex] = conversation;
+    } else {
+      conversations.unshift(conversation);
+    }
+    this.saveConversations(conversations);
+    return conversations;
   },
   async chat({ question = "", mode = "research", companies = [] } = {}) {
     const response = await fetch("/api/atomic-intelligence/chat", {

@@ -18,8 +18,10 @@ import { projectPlanService } from "./services/project-plan-service.js";
 import { templateService } from "./services/template-service.js";
 import { supabaseService } from "./services/supabase-service.js";
 import { analyzeEmailWriting } from "./services/writing-coach-service.js";
+import { assistantHistoryService } from "./services/assistant-history-service.js";
 import { renderCompanyModal } from "./ui/components/modal.js";
 import { renderFollowUpWorkflowModal } from "./ui/components/follow-up-workflow-modal.js";
+import { renderAssistantHistoryView } from "./ui/views/assistant-history-view.js";
 import { renderAuthView } from "./ui/views/auth-view.js";
 import { renderCalendarView } from "./ui/views/calendar-view.js";
 import { renderCompaniesView } from "./ui/views/companies-view.js";
@@ -142,6 +144,20 @@ const workspaceViews = [
     description: "Track compliance checks, tolerance limits, and quick engineering calculations before submission."
   },
   {
+    id: "intelligence",
+    label: "Atomic AI",
+    eyebrow: "AI Assistant",
+    title: "Chat with Atomic Intelligence",
+    description: "Ask Atomic AI and keep each chat session as its own conversation."
+  },
+  {
+    id: "ai-history",
+    label: "AI History",
+    eyebrow: "Atomic AI",
+    title: "Saved Atomic AI chats",
+    description: "Review earlier assistant conversations saved on the server and reload them when needed."
+  },
+  {
     id: "thankyou",
     label: "Thank You Cards",
     eyebrow: "Branding",
@@ -186,6 +202,7 @@ const state = {
   },
   assistant: {
     open: true,
+    conversationId: crypto.randomUUID(),
     input: "",
     loading: false,
     messages: [
@@ -195,6 +212,22 @@ const state = {
           "Hi, I’m Atomic AI. Ask me anything about sponsor research, outreach, emails, planning, or a company you want to contact."
       }
     ]
+  },
+  assistantHistory: {
+    loading: false,
+    error: "",
+    conversations: [],
+    selectedId: ""
+  },
+  intelligence: {
+    activeTab: "chat",
+    input: "",
+    loading: false,
+    error: "",
+    messages: [],
+    conversationId: crypto.randomUUID(),
+    activeConversationId: "",
+    conversations: []
   },
   mailbox: {
     loading: false,
@@ -381,6 +414,90 @@ function getModalCompany() {
   }
 
   return state.companies.find((company) => company.id === state.modal.companyId) || createCompany();
+}
+
+function getIntelligenceConversationTitle(messages = []) {
+  const firstUser = (messages || []).find((message) => message.role === "user")?.text || "New AI chat";
+  const clean = String(firstUser || "").trim();
+  if (!clean) {
+    return "New AI chat";
+  }
+  return clean.length > 40 ? `${clean.slice(0, 37)}...` : clean;
+}
+
+function getActiveIntelligenceConversation() {
+  return (
+    state.intelligence.conversations.find((conversation) => conversation.id === state.intelligence.activeConversationId) ||
+    state.intelligence.conversations[0] ||
+    null
+  );
+}
+
+function createIntelligenceConversation(messages = []) {
+  const now = new Date().toISOString();
+  const normalized = Array.isArray(messages) ? messages : [];
+
+  return {
+    id: crypto.randomUUID(),
+    title: getIntelligenceConversationTitle(normalized),
+    messages: normalized,
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
+function loadIntelligenceConversation(id) {
+  const conversation = state.intelligence.conversations.find((entry) => entry.id === id);
+  if (!conversation) {
+    return;
+  }
+
+  state.intelligence.conversationId = conversation.id;
+  state.intelligence.activeConversationId = conversation.id;
+  state.intelligence.messages = Array.isArray(conversation.messages) ? conversation.messages : [];
+  state.intelligence.input = "";
+}
+
+async function saveIntelligenceConversationSnapshot() {
+  const messages = Array.isArray(state.intelligence.messages) ? state.intelligence.messages : [];
+  if (!messages.length) {
+    return;
+  }
+
+  const existing = state.intelligence.conversations.find((entry) => entry.id === state.intelligence.conversationId);
+  const now = new Date().toISOString();
+  const conversation = {
+    id: state.intelligence.conversationId || crypto.randomUUID(),
+    title: getIntelligenceConversationTitle(messages),
+    messages,
+    createdAt: existing?.createdAt || now,
+    updatedAt: now
+  };
+
+  const next = state.intelligence.conversations.filter((entry) => entry.id !== conversation.id);
+  next.unshift(conversation);
+  state.intelligence.conversations = next;
+  state.intelligence.activeConversationId = conversation.id;
+  atomicIntelligenceService.saveConversation(conversation);
+  atomicIntelligenceService.saveHistory(messages);
+}
+
+function createNewIntelligenceConversation() {
+  const starter = [
+    {
+      role: "assistant",
+      text:
+        "I’m Atomic Intelligence. Ask me for sponsor leads, company summaries, latest news, or outreach strategy."
+    }
+  ];
+  const conversation = createIntelligenceConversation(starter);
+  state.intelligence.conversations = [conversation, ...state.intelligence.conversations];
+  state.intelligence.conversationId = conversation.id;
+  state.intelligence.activeConversationId = conversation.id;
+  state.intelligence.messages = starter;
+  state.intelligence.input = "";
+  atomicIntelligenceService.saveConversation(conversation);
+  atomicIntelligenceService.saveHistory(starter);
 }
 
 function getWorkspaceView() {
@@ -593,6 +710,66 @@ function upsertCompanyInState(company) {
 
     return left.companyName.localeCompare(right.companyName);
   });
+}
+
+function getAssistantConversationTitle(messages = state.assistant.messages) {
+  const firstUserMessage = (messages || []).find((message) => message.role === "user")?.text || "";
+  const clean = String(firstUserMessage || "").trim();
+  if (!clean) {
+    return "Atomic AI chat";
+  }
+
+  return clean.length > 72 ? `${clean.slice(0, 69)}...` : clean;
+}
+
+async function saveAssistantConversationSnapshot() {
+  const messages = Array.isArray(state.assistant.messages)
+    ? state.assistant.messages.map((message) => ({
+        role: message.role === "user" ? "user" : "assistant",
+        text: String(message.text || "")
+      }))
+    : [];
+
+  if (!messages.some((message) => message.role === "user")) {
+    return;
+  }
+
+  const payload = {
+    id: state.assistant.conversationId,
+    title: getAssistantConversationTitle(messages),
+    messages
+  };
+
+  const result = await assistantHistoryService.saveConversation(payload);
+  state.assistantHistory.conversations = Array.isArray(result?.conversations)
+    ? result.conversations
+    : state.assistantHistory.conversations;
+  if (!state.assistantHistory.selectedId) {
+    state.assistantHistory.selectedId = payload.id;
+  }
+}
+
+async function loadAssistantHistory({ preserveSelection = true } = {}) {
+  state.assistantHistory.loading = true;
+  state.assistantHistory.error = "";
+  renderApp();
+
+  try {
+    const conversations = await assistantHistoryService.loadConversations();
+    state.assistantHistory.conversations = conversations;
+    if (
+      !preserveSelection ||
+      !state.assistantHistory.selectedId ||
+      !conversations.some((conversation) => conversation.id === state.assistantHistory.selectedId)
+    ) {
+      state.assistantHistory.selectedId = conversations[0]?.id || "";
+    }
+  } catch (error) {
+    state.assistantHistory.error = error.message || "Could not load saved AI chats.";
+  } finally {
+    state.assistantHistory.loading = false;
+    renderApp();
+  }
 }
 
 function resetModalResearchState() {
@@ -1368,6 +1545,9 @@ async function handleAssistantQuestion(question = "") {
       role: "assistant",
       text: actionResult ? `${replyText}\n\n${actionResult.message}` : replyText
     });
+    await saveAssistantConversationSnapshot().catch((error) => {
+      console.warn("Could not save assistant chat history.", error);
+    });
   } catch (error) {
     const fallback = askCompanyAssistant({
       question: cleanQuestion,
@@ -1379,6 +1559,9 @@ async function handleAssistantQuestion(question = "") {
     state.assistant.messages.push({
       role: "assistant",
       text: actionResult ? `${fallbackText}\n\n${actionResult.message}` : fallbackText
+    });
+    await saveAssistantConversationSnapshot().catch((saveError) => {
+      console.warn("Could not save assistant chat history.", saveError);
     });
   } finally {
     state.assistant.loading = false;
@@ -1413,14 +1596,14 @@ async function handleIntelligenceQuestion(question = "") {
       role: "assistant",
       text: answerText
     });
-    atomicIntelligenceService.saveHistory(state.intelligence.messages);
+    await saveIntelligenceConversationSnapshot();
   } catch (error) {
     state.intelligence.error = error.message || "Atomic Intelligence could not complete that request.";
     state.intelligence.messages.push({
       role: "assistant",
       text: `I hit an issue: ${state.intelligence.error}`
     });
-    atomicIntelligenceService.saveHistory(state.intelligence.messages);
+    await saveIntelligenceConversationSnapshot();
   } finally {
     state.intelligence.loading = false;
     renderApp();
@@ -2044,10 +2227,12 @@ function renderShell() {
                   templates: state.templates,
                   drafts: state.drafts
                 })
-              : activeView.id === "planner"
-                ? renderProjectPlannerView(state.projectPlan)
-              : activeView.id === "intelligence"
-                ? renderAtomicIntelligenceView(state.intelligence)
+        : activeView.id === "planner"
+          ? renderProjectPlannerView(state.projectPlan)
+          : activeView.id === "ai-history"
+            ? renderAssistantHistoryView(state.assistantHistory)
+          : activeView.id === "intelligence"
+            ? renderAtomicIntelligenceView(state.intelligence)
                 : activeView.id === "scrutineering"
                   ? renderScrutineeringView(state.scrutineering, getActiveScrutineeringCar())
                   : renderThankYouCardsView(state.thankyou);
@@ -2236,6 +2421,9 @@ function renderAssistantWidget() {
                   <strong>Atomic AI</strong>
                   <span>Research, outreach, email help</span>
                 </div>
+                <button type="button" class="ghost-button ghost-button--compact" data-action="open-assistant-history">
+                  Saved chats
+                </button>
               </div>
               <div class="assistant-widget__messages">
                 ${assistant.messages
@@ -2436,6 +2624,9 @@ async function loadAppData() {
     state.projectPlan = projectPlanService.loadPlan();
     state.drafts = draftService.loadDrafts();
     const intelligenceHistory = atomicIntelligenceService.loadHistory();
+    const intelligenceConversations = atomicIntelligenceService.loadConversations();
+
+    state.intelligence.conversations = intelligenceConversations;
     state.intelligence.messages = intelligenceHistory.length
       ? intelligenceHistory
       : [
@@ -2445,6 +2636,33 @@ async function loadAppData() {
               "I’m Atomic Intelligence. Ask me for sponsor leads, company summaries, latest news, or outreach strategy."
           }
         ];
+
+    if (state.intelligence.conversations.length) {
+      state.intelligence.activeConversationId =
+        state.intelligence.activeConversationId || state.intelligence.conversations[0].id;
+      state.intelligence.conversationId =
+        state.intelligence.conversationId || state.intelligence.activeConversationId;
+      const selectedConversation = state.intelligence.conversations.find(
+        (entry) => entry.id === state.intelligence.activeConversationId
+      );
+      if (selectedConversation && Array.isArray(selectedConversation.messages)) {
+        state.intelligence.messages = selectedConversation.messages;
+      }
+    } else {
+      const starter = [
+        {
+          role: "assistant",
+          text:
+            "I’m Atomic Intelligence. Ask me for sponsor leads, company summaries, latest news, or outreach strategy."
+        }
+      ];
+      const initialConversation = createIntelligenceConversation(starter);
+      state.intelligence.conversations = [initialConversation];
+      state.intelligence.conversationId = initialConversation.id;
+      state.intelligence.activeConversationId = initialConversation.id;
+      atomicIntelligenceService.saveConversation(initialConversation);
+      atomicIntelligenceService.saveHistory(starter);
+    }
 
     if (!state.companies.some((company) => company.id === state.preferredCompanyId)) {
       state.preferredCompanyId = state.companies[0]?.id || "";
@@ -3513,8 +3731,52 @@ root.addEventListener("click", async (event) => {
       if (id === "accounts") {
         await loadAccounts(false);
       }
+      if (id === "ai-history") {
+        await loadAssistantHistory({ preserveSelection: true });
+      }
       renderApp();
       return;
+    case "open-assistant-history":
+      setWorkspaceView("ai-history");
+      await loadAssistantHistory({ preserveSelection: true });
+      return;
+    case "refresh-assistant-history":
+      await loadAssistantHistory({ preserveSelection: true });
+      return;
+    case "open-intelligence-conversation": {
+      await saveIntelligenceConversationSnapshot();
+      loadIntelligenceConversation(id);
+      renderApp();
+      return;
+    }
+    case "new-intelligence-conversation": {
+      await saveIntelligenceConversationSnapshot();
+      createNewIntelligenceConversation();
+      renderApp();
+      return;
+    }
+    case "open-assistant-history-conversation":
+      state.assistantHistory.selectedId = id;
+      renderApp();
+      return;
+    case "load-assistant-history-into-chat": {
+      const conversation = state.assistantHistory.conversations.find((entry) => entry.id === id);
+      if (!conversation) {
+        return;
+      }
+
+      state.assistant.messages = Array.isArray(conversation.messages)
+        ? conversation.messages.map((message) => ({
+            role: message.role === "user" ? "user" : "assistant",
+            text: String(message.text || "")
+          }))
+        : state.assistant.messages;
+      state.assistant.conversationId = conversation.id || crypto.randomUUID();
+      state.assistant.open = true;
+      showToast("Saved AI chat loaded into Atomic AI.");
+      renderApp();
+      return;
+    }
     case "toggle-scrut-check":
       toggleScrutineeringCheck(id);
       renderApp();
