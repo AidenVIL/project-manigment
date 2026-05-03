@@ -185,7 +185,7 @@ const state = {
     finderOpen: false
   },
   assistant: {
-    open: false,
+    open: true,
     input: "",
     loading: false,
     messages: [
@@ -610,6 +610,253 @@ function resetModalResearchState() {
   state.modal.appliedCompanyCandidateId = "";
   state.modal.completedResearchEntries = [];
   state.modal.finderOpen = false;
+}
+
+function normalizeCompanyLookup(text = "") {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\b(?:the|ltd|limited|llc|inc|plc|co|company|group)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function findCompanyByNameHint(hint = "") {
+  const normalizedHint = normalizeCompanyLookup(hint);
+  if (!normalizedHint) {
+    return null;
+  }
+
+  const hintTokens = normalizedHint.split(" ").filter((token) => token.length > 1);
+  let bestMatch = null;
+
+  for (const company of state.companies) {
+    const normalizedName = normalizeCompanyLookup(company.companyName);
+    if (!normalizedName) {
+      continue;
+    }
+
+    let score = 0;
+    if (normalizedName === normalizedHint) {
+      score += 100;
+    }
+    if (normalizedName.includes(normalizedHint) || normalizedHint.includes(normalizedName)) {
+      score += 50;
+    }
+
+    for (const token of hintTokens) {
+      if (normalizedName.includes(token)) {
+        score += 10;
+      }
+    }
+
+    if (!bestMatch || score > bestMatch.score) {
+      bestMatch = {
+        company,
+        score
+      };
+    }
+  }
+
+  return bestMatch && bestMatch.score >= 20 ? bestMatch.company : null;
+}
+
+function buildAssistantAuditNote(text = "") {
+  const timestamp = new Intl.DateTimeFormat("en-GB", {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(new Date());
+  return `[Atomic AI] ${text} (${timestamp})`;
+}
+
+function appendAssistantAuditNote(existingNotes = "", nextNote = "") {
+  const trimmedExisting = String(existingNotes || "").trim();
+  const trimmedNext = String(nextNote || "").trim();
+  if (!trimmedNext) {
+    return trimmedExisting;
+  }
+
+  return [trimmedExisting, trimmedNext].filter(Boolean).join("\n\n");
+}
+
+function sanitizeAssistantCompanyName(name = "") {
+  return String(name || "")
+    .replace(/\bhttps?:\/\/\S+.*$/i, "")
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b.*$/i, "")
+    .replace(/[,:-]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function mergeAssistantEmailIntoCompany(company, email, companyHint = "") {
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  const contacts = Array.isArray(company.contacts) ? [...company.contacts] : [];
+  const existingIndex = contacts.findIndex(
+    (entry) => String(entry.email || "").trim().toLowerCase() === normalizedEmail
+  );
+  const nextContact = {
+    id: contacts[existingIndex]?.id || crypto.randomUUID(),
+    name: contacts[existingIndex]?.name || "",
+    role: contacts[existingIndex]?.role || "",
+    email: normalizedEmail,
+    source: "ai-chat",
+    matchReason: buildAssistantAuditNote(
+      companyHint ? `Email saved from chat for ${companyHint}` : "Email saved from chat"
+    )
+  };
+
+  if (existingIndex >= 0) {
+    contacts[existingIndex] = {
+      ...contacts[existingIndex],
+      ...nextContact
+    };
+  } else {
+    contacts.push(nextContact);
+  }
+
+  return createCompany({
+    ...company,
+    contacts,
+    contactEmail: company.contactEmail || normalizedEmail,
+    notes: appendAssistantAuditNote(
+      company.notes,
+      buildAssistantAuditNote(`Saved contact email ${normalizedEmail}`)
+    ),
+    lastUpdated: new Date().toISOString()
+  });
+}
+
+function extractAssistantCompanyAction(question = "") {
+  const text = String(question || "").trim();
+  if (!text) {
+    return null;
+  }
+
+  const emailMatch = text.match(/\b([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\b/i);
+  const websiteMatch = text.match(/\bhttps?:\/\/[^\s)]+/i);
+  const addCompanyMatch = text.match(
+    /\b(?:add|create|save)\s+(?:a\s+)?(?:new\s+)?company\s+([a-z0-9&'., -]{2,80})/i
+  );
+
+  if (emailMatch) {
+    const beforeEmail = text.slice(0, emailMatch.index || 0).trim();
+    const companyMatch =
+      beforeEmail.match(/\b(?:for|to|under|on)\s+([a-z0-9&'., -]{2,80})$/i) ||
+      beforeEmail.match(/\b(?:email for|contact for)\s+([a-z0-9&'., -]{2,80})$/i) ||
+      addCompanyMatch;
+
+    if (companyMatch?.[1]) {
+      const companyName = sanitizeAssistantCompanyName(companyMatch[1]);
+      if (!companyName) {
+        return null;
+      }
+
+      return {
+        type: "email",
+        companyName,
+        email: String(emailMatch[1] || "").trim(),
+        website: websiteMatch?.[0] ? String(websiteMatch[0]).trim() : ""
+      };
+    }
+  }
+
+  if (addCompanyMatch?.[1]) {
+    const companyName = sanitizeAssistantCompanyName(addCompanyMatch[1]);
+    if (!companyName) {
+      return null;
+    }
+
+    return {
+      type: "company",
+      companyName,
+      email: emailMatch?.[1] ? String(emailMatch[1]).trim() : "",
+      website: websiteMatch?.[0] ? String(websiteMatch[0]).trim() : ""
+    };
+  }
+
+  return null;
+}
+
+async function maybeApplyAssistantCompanyAction(question = "") {
+  const action = extractAssistantCompanyAction(question);
+  if (!action) {
+    return null;
+  }
+
+  if (action.type === "email") {
+    const existingCompany = findCompanyByNameHint(action.companyName);
+    if (existingCompany) {
+      const updatedCompany = mergeAssistantEmailIntoCompany(existingCompany, action.email, action.companyName);
+      const savedCompany = await companyService.saveCompany(updatedCompany);
+      upsertCompanyInState(savedCompany);
+      return {
+        message: `Saved **${action.email}** to **${savedCompany.companyName}** and marked it in the CRM.`
+      };
+    }
+
+    const newCompany = createCompany({
+      companyName: action.companyName,
+      website: action.website,
+      contactEmail: action.email,
+      contacts: [
+        {
+          id: crypto.randomUUID(),
+          name: "",
+          role: "",
+          email: action.email,
+          source: "ai-chat",
+          matchReason: buildAssistantAuditNote(`Added from chat while creating ${action.companyName}`)
+        }
+      ],
+      recordSource: "ai_added",
+      notes: buildAssistantAuditNote(`Company created from chat with email ${action.email}`),
+      researchSummary: "Created from an Atomic AI chat update.",
+      lastUpdated: new Date().toISOString()
+    });
+    const savedCompany = await companyService.saveCompany(newCompany);
+    upsertCompanyInState(savedCompany);
+    return {
+      message: `Added **${savedCompany.companyName}** as an **AI Added** company and saved **${action.email}**.`
+    };
+  }
+
+  if (action.type === "company") {
+    const existingCompany = findCompanyByNameHint(action.companyName);
+    if (existingCompany) {
+      return {
+        message: `**${existingCompany.companyName}** is already in the CRM, so I left the existing record in place.`
+      };
+    }
+
+    const newCompany = createCompany({
+      companyName: action.companyName,
+      website: action.website,
+      contactEmail: action.email,
+      contacts: action.email
+        ? [
+            {
+              id: crypto.randomUUID(),
+              name: "",
+              role: "",
+              email: action.email,
+              source: "ai-chat",
+              matchReason: buildAssistantAuditNote(`Initial AI-added email for ${action.companyName}`)
+            }
+          ]
+        : [],
+      recordSource: "ai_added",
+      notes: buildAssistantAuditNote("Company created from Atomic AI chat"),
+      researchSummary: "Created from an Atomic AI chat update.",
+      lastUpdated: new Date().toISOString()
+    });
+    const savedCompany = await companyService.saveCompany(newCompany);
+    upsertCompanyInState(savedCompany);
+    return {
+      message: `Added **${savedCompany.companyName}** to the CRM with an **AI Added** label.`
+    };
+  }
+
+  return null;
 }
 
 function applyResearchSuggestionsToDraft(result) {
@@ -1107,27 +1354,31 @@ async function handleAssistantQuestion(question = "") {
   });
   state.assistant.input = "";
   renderApp();
+  let actionResult = null;
 
   try {
     const payload = await atomicIntelligenceService.askAssistant({
       message: cleanQuestion,
       context: buildAssistantContext()
     });
+    actionResult = await maybeApplyAssistantCompanyAction(cleanQuestion);
+    const replyText = payload.reply || "I couldn't produce a useful answer yet.";
 
     state.assistant.messages.push({
       role: "assistant",
-      text: payload.reply || "I couldn't produce a useful answer yet."
+      text: actionResult ? `${replyText}\n\n${actionResult.message}` : replyText
     });
   } catch (error) {
     const fallback = askCompanyAssistant({
       question: cleanQuestion,
       companies: state.companies
     });
+    actionResult = await maybeApplyAssistantCompanyAction(cleanQuestion).catch(() => null);
     const fallbackText = fallback.answer || error.message || "Sorry, I hit an issue answering that.";
 
     state.assistant.messages.push({
       role: "assistant",
-      text: fallbackText
+      text: actionResult ? `${fallbackText}\n\n${actionResult.message}` : fallbackText
     });
   } finally {
     state.assistant.loading = false;
@@ -2024,6 +2275,12 @@ function renderAssistantWidget() {
                   `
                   : ""
               }
+              <div class="assistant-widget__help">
+                <strong>Team quick guide</strong>
+                <p>Ask company/contact questions, paste found emails, or say <strong>add company ...</strong> to save a lead.</p>
+                <p>Example: <strong>I found this email for Aston Martin hello@company.com</strong> or <strong>add company Apex Composites https://apex.example</strong>.</p>
+                <p>New companies created from chat get an <strong>AI Added</strong> badge in the CRM so the team can review them.</p>
+              </div>
               <form id="assistant-form" class="assistant-widget__form">
                 <textarea
                   name="question"

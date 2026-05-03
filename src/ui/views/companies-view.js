@@ -118,6 +118,11 @@ export function renderCompaniesView({ filters, companies, totalCompanies }) {
                   <span class="badge badge--${getToneClass(company.status)}">${escapeHtml(
                     getOptionLabel(companyStatusOptions, company.status)
                   )}</span>
+                  ${
+                    company.recordSource === "ai_added"
+                      ? `<span class="badge badge--info">AI Added</span>`
+                      : ""
+                  }
                   <button type="button" class="ghost-button" data-action="edit-company" data-id="${
                     company.id
                   }">Edit</button>
