@@ -196,7 +196,8 @@ function getRuntimeConfigScript() {
 
 async function resolveRequestPath(urlPathname) {
   const safePath = normalize(decodeURIComponent(urlPathname)).replace(/^(\.\.[/\\])+/, "");
-  let targetPath = join(distDir, safePath);
+  const targetPath = join(distDir, safePath);
+  const requestedExtension = extname(safePath);
 
   if (safePath === "/" || safePath === ".") {
     return join(distDir, "index.html");
@@ -213,6 +214,12 @@ async function resolveRequestPath(urlPathname) {
       return targetPath;
     }
   } catch {
+    if (requestedExtension) {
+      const notFoundError = new Error(`Static asset not found: ${safePath}`);
+      notFoundError.statusCode = 404;
+      throw notFoundError;
+    }
+
     // Fall back to SPA entrypoint below.
   }
 
@@ -3161,6 +3168,11 @@ async function handleRequest(request, response) {
     const cacheStrategy = filePath.endsWith(".html") ? "no-cache" : filePath.match(/\.\w+$/) && !filePath.match(/\.[a-f0-9]{8,}/) ? "short" : "default";
     sendFile(response, filePath, cacheStrategy);
   } catch (error) {
+    if (error?.statusCode === 404) {
+      sendText(response, 404, error.message);
+      return;
+    }
+
     sendText(response, 500, `Server error: ${error.message}`);
   }
 }
