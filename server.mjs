@@ -171,6 +171,25 @@ function sendFile(response, filePath, cacheStrategy = "default") {
   createReadStream(filePath).pipe(response);
 }
 
+function getCacheStrategy(filePath) {
+  const normalizedPath = normalize(filePath);
+
+  if (normalizedPath.endsWith(".html")) {
+    return "no-cache";
+  }
+
+  // Avoid stale browser/CDN module caches after deploys.
+  if (normalizedPath.includes(`${sep}src${sep}`)) {
+    return "no-cache";
+  }
+
+  if (normalizedPath.match(/\.\w+$/) && !normalizedPath.match(/\.[a-f0-9]{8,}/)) {
+    return "short";
+  }
+
+  return "default";
+}
+
 function getRuntimeConfigScript() {
   const runtimeConfig = {
     teamName: process.env.PUBLIC_TEAM_NAME || "Atomic",
@@ -3180,8 +3199,7 @@ async function handleRequest(request, response) {
 
   try {
     const filePath = await resolveRequestPath(url.pathname);
-    // Use no-cache for HTML files (index.html, SPA), short cache for app
-    const cacheStrategy = filePath.endsWith(".html") ? "no-cache" : filePath.match(/\.\w+$/) && !filePath.match(/\.[a-f0-9]{8,}/) ? "short" : "default";
+    const cacheStrategy = getCacheStrategy(filePath);
     sendFile(response, filePath, cacheStrategy);
   } catch (error) {
     if (error?.statusCode === 404) {
