@@ -29,6 +29,12 @@
   box-sizing: border-box;
 }
 
+*,
+*::before,
+*::after {
+  min-width: 0;
+}
+
 html {
   scroll-behavior: smooth;
 }
@@ -68,6 +74,7 @@ img {
 a {
   color: inherit;
   text-decoration: none;
+  overflow-wrap: anywhere;
 }
 
 button,
@@ -75,11 +82,13 @@ input,
 select,
 textarea {
   font: inherit;
+  min-width: 0;
 }
 
 button {
   border: 0;
   cursor: pointer;
+  white-space: normal;
 }
 
 input,
@@ -109,6 +118,25 @@ textarea::placeholder {
 
 textarea {
   resize: vertical;
+  overflow-y: hidden;
+}
+
+:where(
+  .panel,
+  .modal-card,
+  .assistant-widget__panel,
+  .assistant-widget__message,
+  .finder-item,
+  .finder-summary,
+  .mail-item,
+  .company-card,
+  .template-card,
+  .draft-row,
+  .empty-inline,
+  .inline-message
+) {
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 
 .app-shell {
@@ -1116,9 +1144,9 @@ textarea {
 .mail-item__sender,
 .mail-item strong,
 .mail-item small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
 }
 
 .mail-item__sender {
@@ -1862,6 +1890,7 @@ textarea {
 .modal-backdrop {
   position: fixed;
   inset: 0;
+  z-index: 80;
   display: none;
   place-items: center;
   padding: 1.2rem;
@@ -1874,9 +1903,12 @@ textarea {
 }
 
 .modal-card {
-  width: min(1280px, 100%);
+  width: min(1280px, calc(100vw - 2.4rem));
+  min-width: min(680px, calc(100vw - 2.4rem));
+  min-height: 420px;
   max-height: calc(100vh - 2.4rem);
   overflow: auto;
+  resize: both;
   padding: 1.35rem;
   border: 1px solid var(--stroke);
   border-radius: 28px;
@@ -2120,9 +2152,9 @@ textarea {
 
 .finder-summary-line {
   display: block;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
 }
 
 .finder-full-summary {
@@ -2131,6 +2163,43 @@ textarea {
   line-height: 1.58;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+.finder-ai-route {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.85rem;
+  border: 1px solid rgba(50, 206, 50, 0.18);
+  border-radius: 18px;
+  background: rgba(50, 206, 50, 0.08);
+}
+
+.finder-ai-route span {
+  color: var(--muted);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.finder-ai-route__sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.finder-ai-route__sources small {
+  color: var(--muted);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.finder-ai-route__sources a {
+  padding: 0.22rem 0.5rem;
+  border: 1px solid rgba(22, 49, 26, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.86);
+  color: #137333;
+  font-size: 0.78rem;
 }
 
 .finder-item__badge {
@@ -2406,8 +2475,15 @@ textarea {
 
 .assistant-widget__panel {
   width: min(440px, calc(100vw - 1.8rem));
+  min-width: min(320px, calc(100vw - 1.8rem));
+  min-height: 360px;
+  max-width: calc(100vw - 1.8rem);
+  max-height: calc(100vh - 6rem);
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
   gap: 0.75rem;
+  overflow: auto;
+  resize: both;
   padding: 1rem;
 }
 
@@ -2427,11 +2503,16 @@ textarea {
 .assistant-widget__messages {
   display: grid;
   gap: 0.55rem;
-  max-height: 360px;
+  align-content: end;
+  min-height: 0;
+  max-height: none;
   overflow: auto;
+  padding-right: 0.15rem;
 }
 
 .assistant-widget__message {
+  width: fit-content;
+  max-width: 92%;
   border-radius: 12px;
   padding: 0.65rem 0.75rem;
 }
@@ -2453,8 +2534,52 @@ textarea {
 }
 
 .assistant-widget__message--user {
+  justify-self: end;
   background: rgba(50, 206, 50, 0.12);
   border: 1px solid rgba(50, 206, 50, 0.2);
+}
+
+.assistant-important {
+  display: inline;
+  padding: 0.05rem 0.18rem;
+  border-radius: 6px;
+  background: rgba(50, 206, 50, 0.16);
+  color: #0f3d16;
+  font-weight: 800;
+}
+
+.assistant-important--email {
+  background: rgba(255, 244, 191, 0.92);
+  color: #5c4100;
+}
+
+.assistant-sources {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  margin-top: 0.75rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid rgba(22, 49, 26, 0.08);
+}
+
+.assistant-sources span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.assistant-sources a {
+  display: inline-flex;
+  max-width: 100%;
+  padding: 0.22rem 0.5rem;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 1px solid rgba(22, 49, 26, 0.1);
+  color: #137333;
+  font-size: 0.78rem;
+  text-decoration: none;
 }
 
 .assistant-widget__prompts {

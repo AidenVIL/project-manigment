@@ -432,6 +432,8 @@ async function generateOpenAIChatReply(message, options = {}) {
     "When current company/contact information is needed, use web search and base the answer on public sources.",
     "If no direct sponsorship route is visible, say the best fallback route and why.",
     "For email draft review, give specific wording and structure improvements without rewriting the whole email unless asked.",
+    "For contact questions, start with the answer in one sentence, then give the best route and one fallback.",
+    "Use bold markdown around the most important facts, especially emails, contact forms, and recommended next steps.",
     "Keep answers useful, friendly, and short enough for a busy teammate."
   ].join("\n");
 
@@ -2320,6 +2322,76 @@ async function maybeRefineWithGemini(researchDraft) {
   return null;
 }
 
+function mergeResearchRefinement(draft, refined) {
+  if (!refined || typeof refined !== "object") {
+    return draft;
+  }
+
+  const bestContactRoute = String(refined.bestContactRoute || refined.contactRoute || "").trim();
+  const refinedSummary = String(refined.summary || "").trim();
+  const summary =
+    bestContactRoute && !refinedSummary.toLowerCase().includes(bestContactRoute.slice(0, 42).toLowerCase())
+      ? `${refinedSummary || draft.summary} Best outreach route: ${bestContactRoute}`
+      : refinedSummary || draft.summary;
+  const refinedFieldSuggestions =
+    Array.isArray(refined.fieldSuggestions) && refined.fieldSuggestions.length
+      ? refined.fieldSuggestions.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 6)
+      : draft.fieldSuggestions;
+
+  return {
+    ...draft,
+    summary,
+    sector: String(refined.sector || "").trim() || draft.sector,
+    recommendedAskType: String(refined.recommendedAskType || "").trim() || draft.recommendedAskType,
+    personalization: String(refined.personalization || "").trim() || draft.personalization,
+    fieldSuggestions: bestContactRoute
+      ? [`Best outreach route: ${bestContactRoute}`, ...(refinedFieldSuggestions || [])].slice(0, 6)
+      : refinedFieldSuggestions,
+    aiContactRoute: bestContactRoute,
+    aiSources: Array.isArray(refined.sources) ? refined.sources.slice(0, 6) : draft.aiSources || []
+  };
+}
+
+async function maybeRefineCompanyResearchWithOpenAI(researchDraft) {
+  if (!openai) {
+    return null;
+  }
+
+  const prompt = [
+    "You are improving structured sponsorship research for a student racing team.",
+    "Use the supplied company finder data and, when useful, current web search.",
+    "Focus on the best public outreach route: direct email, sponsorship email, partnership page, contact form, careers/contact page, or a practical fallback.",
+    "Return JSON only with this shape:",
+    '{"summary":"","sector":"","recommendedAskType":"","personalization":"","bestContactRoute":"","fieldSuggestions":[""],"sources":[""]}',
+    "Keep summary and personalization concise. Do not invent emails; only include emails clearly supported by public data."
+  ].join("\n");
+
+  const response = await openai.responses.create({
+    model: openaiModel,
+    reasoning: { effort: "low" },
+    tools: [
+      {
+        type: "web_search",
+        search_context_size: "low"
+      }
+    ],
+    tool_choice: "auto",
+    max_output_tokens: 700,
+    input: `${prompt}\n\nFinder data:\n${JSON.stringify(researchDraft).slice(0, 12000)}`
+  });
+
+  const parsed = safeJsonParse(String(response.output_text || ""));
+  if (!parsed) {
+    return null;
+  }
+
+  const sourceUrls = collectOpenAIWebSources(response).map((source) => source.url);
+  return {
+    ...parsed,
+    sources: Array.isArray(parsed.sources) && parsed.sources.length ? parsed.sources : sourceUrls
+  };
+}
+
 
 async function researchCompanyWebsite({
   companyName = "",
@@ -2335,7 +2407,7 @@ async function researchCompanyWebsite({
       companySearchMode
     });
 
-    return {
+    const draft = {
       companyName,
       website: "",
       searchMode,
@@ -2358,6 +2430,17 @@ async function researchCompanyWebsite({
       personalization: "",
       fieldSuggestions: []
     };
+
+    try {
+      const refined = await maybeRefineCompanyResearchWithOpenAI({
+        ...draft,
+        companyCandidates: companyCandidates.slice(0, 8)
+      });
+      return mergeResearchRefinement(draft, refined);
+    } catch (error) {
+      console.error("OpenAI company finder refinement failed:", error.message);
+      return draft;
+    }
   }
 
   const normalizedWebsite =
@@ -2458,6 +2541,19 @@ async function researchCompanyWebsite({
       emails
     })
   };
+
+  try {
+    const refined = await maybeRefineCompanyResearchWithOpenAI({
+      ...draft,
+      combinedSnippet: textSnippet(combinedText, 10000)
+    });
+
+    if (refined) {
+      return mergeResearchRefinement(draft, refined);
+    }
+  } catch (error) {
+    console.error("OpenAI website finder refinement failed:", error.message);
+  }
 
   try {
     const refined = await maybeRefineWithGemini({
@@ -3174,7 +3270,7 @@ async function handleRequest(request, response) {
         context
       });
 
-      sendJson(response, 200, {
+      const draft = {
         companyName: industry,
         website: website || "",
         searchMode: "company",
@@ -3192,7 +3288,18 @@ async function handleRequest(request, response) {
         summary: `Found ${companyCandidates.length} likely external sponsor targets for ${industry}, ranked by public sponsorship-fit signals.`,
         personalization: "",
         fieldSuggestions: []
-      });
+      };
+
+      try {
+        const refined = await maybeRefineCompanyResearchWithOpenAI({
+          ...draft,
+          companyCandidates: companyCandidates.slice(0, 10)
+        });
+        sendJson(response, 200, mergeResearchRefinement(draft, refined));
+      } catch (error) {
+        console.error("OpenAI external sponsor refinement failed:", error.message);
+        sendJson(response, 200, draft);
+      }
     } catch (error) {
       sendJson(response, 400, { error: error.message });
     }

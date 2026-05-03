@@ -18,6 +18,37 @@ function renderOptions(options, selectedValue) {
     .join("");
 }
 
+function renderAiResearchRoute(result) {
+  const contactRoute = String(result?.aiContactRoute || "").trim();
+  const sources = Array.isArray(result?.aiSources) ? result.aiSources.filter(Boolean).slice(0, 5) : [];
+
+  if (!contactRoute && !sources.length) {
+    return "";
+  }
+
+  const sourceLinks = sources
+    .map((source, index) => {
+      const url = String(source || "").trim();
+      const label = (() => {
+        try {
+          return new URL(url).hostname.replace(/^www\./, "");
+        } catch {
+          return `Source ${index + 1}`;
+        }
+      })();
+
+      return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`;
+    })
+    .join("");
+
+  return `
+    <div class="finder-ai-route">
+      ${contactRoute ? `<strong>AI best route</strong><span>${escapeHtml(contactRoute)}</span>` : ""}
+      ${sourceLinks ? `<div class="finder-ai-route__sources"><small>Sources</small>${sourceLinks}</div>` : ""}
+    </div>
+  `;
+}
+
 function renderResearchContacts(contacts = []) {
   if (!contacts.length) {
     return `<p class="research-empty">No clear named contact was found on the public pages scanned.</p>`;
@@ -408,6 +439,7 @@ export function renderCompanyModal(modalState, company) {
                   <strong>${escapeHtml(researchResult.website || researchResult.companyName || "Finder results")}</strong>
                   <span>${escapeHtml(researchResult.summary || "No summary generated.")}</span>
                 </div>
+                ${renderAiResearchRoute(researchResult)}
               `
               : `<p class="research-empty">Run the finder to build a selectable list of public emails and contact clues.</p>`
           }

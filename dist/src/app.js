@@ -940,12 +940,43 @@ function extractCompanyQueryForAssistant(question = "") {
 }
 
 function renderAssistantMessageText(text = "") {
-  const escaped = escapeHtml(String(text || ""));
-  const linked = escaped.replace(
-    /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
-    '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>'
-  );
-  return linked.replace(/\n/g, "<br />");
+  const rawText = String(text || "").trim();
+  const [body = "", sourcesBlock = ""] = rawText.split(/\n\s*Sources:\s*\n/i);
+  const sourceUrls = [...sourcesBlock.matchAll(/https?:\/\/[^\s)]+/g)]
+    .map((match) => match[0].replace(/[.,;]+$/g, ""))
+    .filter(Boolean);
+  const bodyHtml = escapeHtml(body)
+    .replace(/\*\*([^*]+)\*\*/g, '<strong class="assistant-important">$1</strong>')
+    .replace(
+      /\b([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\b/gi,
+      '<strong class="assistant-important assistant-important--email">$1</strong>'
+    )
+    .replace(
+      /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
+      '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>'
+    )
+    .replace(/\n/g, "<br />");
+
+  if (!sourceUrls.length) {
+    return bodyHtml;
+  }
+
+  const sourceMarkup = sourceUrls
+    .slice(0, 5)
+    .map((url, index) => {
+      const hostname = (() => {
+        try {
+          return new URL(url).hostname.replace(/^www\./, "");
+        } catch {
+          return `Source ${index + 1}`;
+        }
+      })();
+
+      return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(hostname)}</a>`;
+    })
+    .join("");
+
+  return `${bodyHtml}<div class="assistant-sources"><span>Sources</span>${sourceMarkup}</div>`;
 }
 
 function buildAssistantContext() {
@@ -1890,6 +1921,7 @@ function drawThankYouCard() {
 
 function renderAssistantWidget() {
   const assistant = state.assistant;
+  const showQuickPrompts = !assistant.messages.some((message) => message.role === "user") && !assistant.loading;
   const quickPrompts = [
     "Does McLaren have a sponsorship contact?",
     "Improve my current email draft",
@@ -1927,27 +1959,36 @@ function renderAssistantWidget() {
                     : ""
                 }
               </div>
-              <div class="assistant-widget__prompts">
-                ${quickPrompts
-                  .map(
-                    (prompt) => `
-                      <button
-                        type="button"
-                        class="ghost-button ghost-button--compact"
-                        data-action="assistant-prompt"
-                        data-id="${escapeHtml(prompt)}"
-                      >
-                        ${escapeHtml(prompt)}
-                      </button>
-                    `
-                  )
-                  .join("")}
-              </div>
+              ${
+                showQuickPrompts
+                  ? `
+                    <div class="assistant-widget__prompts">
+                      ${quickPrompts
+                        .map(
+                          (prompt) => `
+                            <button
+                              type="button"
+                              class="ghost-button ghost-button--compact"
+                              data-action="assistant-prompt"
+                              data-id="${escapeHtml(prompt)}"
+                            >
+                              ${escapeHtml(prompt)}
+                            </button>
+                          `
+                        )
+                        .join("")}
+                    </div>
+                  `
+                  : ""
+              }
               <form id="assistant-form" class="assistant-widget__form">
                 <textarea
                   name="question"
                   rows="2"
                   placeholder="Ask anything..."
+                  spellcheck="true"
+                  autocorrect="on"
+                  autocapitalize="sentences"
                   ${assistant.loading ? "disabled" : ""}
                   required
                 >${escapeHtml(assistant.input || "")}</textarea>
@@ -1990,6 +2031,38 @@ function applyWritingAssists(container = root) {
     element.setAttribute("spellcheck", "true");
     element.setAttribute("autocorrect", "on");
     element.setAttribute("autocapitalize", "sentences");
+    element.setAttribute("lang", "en-GB");
+  });
+
+  container.querySelectorAll("textarea").forEach(autoResizeTextarea);
+}
+
+function autoResizeTextarea(textarea) {
+  if (!(textarea instanceof HTMLTextAreaElement)) {
+    return;
+  }
+
+  textarea.style.height = "auto";
+  const styles = window.getComputedStyle(textarea);
+  const maxHeight = Number.parseFloat(styles.maxHeight);
+  const nextHeight = Number.isFinite(maxHeight)
+    ? Math.min(textarea.scrollHeight, maxHeight)
+    : textarea.scrollHeight;
+
+  textarea.style.height = `${Math.max(nextHeight, textarea.offsetHeight)}px`;
+  textarea.style.overflowY = Number.isFinite(maxHeight) && textarea.scrollHeight > maxHeight ? "auto" : "hidden";
+}
+
+function scrollAssistantToBottom() {
+  if (!state.assistant.open) {
+    return;
+  }
+
+  window.requestAnimationFrame(() => {
+    const messages = root.querySelector(".assistant-widget__messages");
+    if (messages) {
+      messages.scrollTop = messages.scrollHeight;
+    }
   });
 }
 
@@ -2035,6 +2108,7 @@ function renderApp() {
   ensureScrutineeringState();
   root.innerHTML = renderShell();
   applyWritingAssists();
+  scrollAssistantToBottom();
   drawThankYouCard();
 }
 
@@ -3648,6 +3722,10 @@ root.addEventListener("click", async (event) => {
 });
 
 root.addEventListener("input", (event) => {
+  if (event.target instanceof HTMLTextAreaElement) {
+    autoResizeTextarea(event.target);
+  }
+
   if (event.target.closest("#gmail-compose-form")) {
     syncComposeStateFromForm(event.target.closest("#gmail-compose-form"));
     scheduleComposeAiRecommendation();
@@ -4200,6 +4278,17 @@ root.addEventListener("submit", async (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
+  if (
+    event.key === "Enter" &&
+    !event.shiftKey &&
+    !event.isComposing &&
+    event.target.closest("#assistant-form")
+  ) {
+    event.preventDefault();
+    event.target.closest("form")?.requestSubmit();
+    return;
+  }
+
   // Auto-focus password field when Enter is pressed on username field (if password is empty)
   if (event.key === "Enter" && event.target.classList.contains("auth-username-input")) {
     const form = event.target.closest("form");
