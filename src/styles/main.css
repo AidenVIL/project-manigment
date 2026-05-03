@@ -2627,12 +2627,21 @@ textarea {
   display: grid;
   grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
   gap: 1rem;
+  align-items: start;
+}
+
+.chat-history-list,
+.chat-history-viewer,
+.intel-chat {
+  min-height: 0;
 }
 
 .chat-history-list,
 .chat-history-viewer {
   display: grid;
   gap: 0.85rem;
+  max-height: calc(100vh - 22rem);
+  overflow: auto;
 }
 
 .chat-history-list {

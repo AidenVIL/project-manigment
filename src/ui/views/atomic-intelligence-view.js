@@ -48,6 +48,7 @@ export function renderAtomicIntelligenceView(intelligenceState = {}) {
   const messages = Array.isArray(intelligenceState.messages) ? intelligenceState.messages : [];
   const conversations = Array.isArray(intelligenceState.conversations) ? intelligenceState.conversations : [];
   const activeTab = intelligenceState.activeTab || "chat";
+  const hasUserMessage = messages.some((message) => message.role === "user");
   const activeConversation = conversations.find((entry) => entry.id === intelligenceState.activeConversationId) || {
     title: "New AI chat",
     messages
@@ -59,7 +60,7 @@ export function renderAtomicIntelligenceView(intelligenceState = {}) {
         <div>
           <span class="eyebrow">Atomic Intelligence</span>
           <h2>AI command workspace</h2>
-          <p class="helper-copy">Free-first research + sponsor workflow assistant running Pi-friendly.</p>
+          ${!hasUserMessage ? `<p class="helper-copy">Free-first research + sponsor workflow assistant running Pi-friendly.</p>` : ""}
         </div>
       </div>
 

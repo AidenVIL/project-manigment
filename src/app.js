@@ -903,6 +903,37 @@ function mergeAssistantEmailIntoCompany(company, email, companyHint = "") {
   });
 }
 
+function mergeAssistantCompanyDetails(company, { note = "", website = "", email = "", companyHint = "" } = {}) {
+  const updates = { ...company };
+  const notes = [];
+
+  if (note) {
+    updates.notes = appendAssistantAuditNote(
+      updates.notes,
+      buildAssistantAuditNote(`Appended from chat: ${note}`)
+    );
+    notes.push(`note`);
+  }
+
+  if (website) {
+    updates.website = website;
+    updates.notes = appendAssistantAuditNote(
+      updates.notes,
+      buildAssistantAuditNote(`Saved website ${website}${companyHint ? ` for ${companyHint}` : ""}`)
+    );
+    notes.push(`website`);
+  }
+
+  if (email) {
+    return mergeAssistantEmailIntoCompany(company, email, companyHint);
+  }
+
+  return createCompany({
+    ...updates,
+    lastUpdated: new Date().toISOString()
+  });
+}
+
 function extractAssistantCompanyAction(question = "") {
   const text = String(question || "").trim();
   if (!text) {
@@ -911,9 +942,23 @@ function extractAssistantCompanyAction(question = "") {
 
   const emailMatch = text.match(/\b([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\b/i);
   const websiteMatch = text.match(/\bhttps?:\/\/[^\s)]+/i);
+  const deleteCompanyMatch = text.match(/\b(?:delete|remove)\s+(?:company\s+)?([a-z0-9&'., -]{2,80})/i);
   const addCompanyMatch = text.match(
     /\b(?:add|create|save)\s+(?:a\s+)?(?:new\s+)?company\s+([a-z0-9&'., -]{2,80})/i
   );
+  const appendCompanyMatch = text.match(/\b(?:append|update|change|save|add)\b[\s\S]*?\b(?:to|for|about)\s+([a-z0-9&'., -]{2,80})/i);
+
+  if (deleteCompanyMatch?.[1]) {
+    const companyName = sanitizeAssistantCompanyName(deleteCompanyMatch[1]);
+    if (!companyName) {
+      return null;
+    }
+
+    return {
+      type: "delete",
+      companyName
+    };
+  }
 
   if (emailMatch) {
     const beforeEmail = text.slice(0, emailMatch.index || 0).trim();
@@ -935,6 +980,22 @@ function extractAssistantCompanyAction(question = "") {
         website: websiteMatch?.[0] ? String(websiteMatch[0]).trim() : ""
       };
     }
+  }
+
+  if (appendCompanyMatch?.[1] && !addCompanyMatch) {
+    const companyName = sanitizeAssistantCompanyName(appendCompanyMatch[1]);
+    if (!companyName) {
+      return null;
+    }
+
+    const note = text.replace(/\b(?:append|update|change|save|add)\b[\s\S]*?\b(?:to|for|about)\s+[a-z0-9&'., -]{2,80}/i, "").trim();
+    return {
+      type: "append",
+      companyName,
+      note: note || text,
+      email: emailMatch?.[1] ? String(emailMatch[1]).trim() : "",
+      website: websiteMatch?.[0] ? String(websiteMatch[0]).trim() : ""
+    };
   }
 
   if (addCompanyMatch?.[1]) {
@@ -994,6 +1055,73 @@ async function maybeApplyAssistantCompanyAction(question = "") {
     upsertCompanyInState(savedCompany);
     return {
       message: `Added **${savedCompany.companyName}** as an **AI Added** company and saved **${action.email}**.`
+    };
+  }
+
+  if (action.type === "append") {
+    const existingCompany = findCompanyByNameHint(action.companyName);
+    if (!existingCompany) {
+      const newCompany = createCompany({
+        companyName: action.companyName,
+        website: action.website,
+        contactEmail: action.email,
+        contacts: action.email
+          ? [
+              {
+                id: crypto.randomUUID(),
+                name: "",
+                role: "",
+                email: action.email,
+                source: "ai-chat",
+                matchReason: buildAssistantAuditNote(`Initial AI-added email for ${action.companyName}`)
+              }
+            ]
+          : [],
+        recordSource: "ai_added",
+        notes: buildAssistantAuditNote(`Created from chat with appended info: ${action.note}`),
+        researchSummary: "Created from an Atomic AI chat update.",
+        lastUpdated: new Date().toISOString()
+      });
+      const savedCompany = await companyService.saveCompany(newCompany);
+      upsertCompanyInState(savedCompany);
+      return {
+        message: `Could not find **${action.companyName}** in the CRM, so I created it and appended the info.`
+      };
+    }
+
+    const updatedCompany = mergeAssistantCompanyDetails(existingCompany, {
+      note: action.note,
+      website: action.website,
+      email: action.email,
+      companyHint: action.companyName
+    });
+    const savedCompany = await companyService.saveCompany(updatedCompany);
+    upsertCompanyInState(savedCompany);
+    const fields = [
+      action.email ? "email" : null,
+      action.website ? "website" : null,
+      action.note ? "notes" : null
+    ]
+      .filter(Boolean)
+      .join(" and ");
+
+    return {
+      message: `Appended ${fields || "information"} to **${savedCompany.companyName}**.`
+    };
+  }
+
+  if (action.type === "delete") {
+    const existingCompany = findCompanyByNameHint(action.companyName);
+    if (!existingCompany) {
+      return {
+        message: `I could not find **${action.companyName}** in the CRM to delete.`
+      };
+    }
+
+    await companyService.deleteCompany(existingCompany.id);
+    state.companies = state.companies.filter((company) => company.id !== existingCompany.id);
+    return {
+      message: `Deleted **${existingCompany.companyName}** from the CRM.`
     };
   }
 
@@ -1596,6 +1724,15 @@ async function handleIntelligenceQuestion(question = "") {
       role: "assistant",
       text: answerText
     });
+
+    const actionResult = await maybeApplyAssistantCompanyAction(cleanQuestion).catch(() => null);
+    if (actionResult?.message) {
+      state.intelligence.messages.push({
+        role: "assistant",
+        text: actionResult.message
+      });
+    }
+
     await saveIntelligenceConversationSnapshot();
   } catch (error) {
     state.intelligence.error = error.message || "Atomic Intelligence could not complete that request.";
@@ -1603,6 +1740,15 @@ async function handleIntelligenceQuestion(question = "") {
       role: "assistant",
       text: `I hit an issue: ${state.intelligence.error}`
     });
+
+    const actionResult = await maybeApplyAssistantCompanyAction(cleanQuestion).catch(() => null);
+    if (actionResult?.message) {
+      state.intelligence.messages.push({
+        role: "assistant",
+        text: actionResult.message
+      });
+    }
+
     await saveIntelligenceConversationSnapshot();
   } finally {
     state.intelligence.loading = false;
