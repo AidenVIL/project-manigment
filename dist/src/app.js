@@ -280,6 +280,8 @@ let pendingFocusRestoreFrame = null;
 let isRestoringEditorFocus = false;
 let pendingCompanySearchFocusRestoreFrame = null;
 let companySearchFocusSnapshot = null;
+let pendingModalScrollRestoreFrame = null;
+let modalScrollSnapshot = null;
 
 function clone(value) {
   return structuredClone(value);
@@ -1702,6 +1704,47 @@ function restoreCompanySearchFocus() {
   }
 }
 
+function isModalScrollableTarget(target) {
+  return target instanceof HTMLElement && Boolean(target.closest(".modal-card"));
+}
+
+function getModalScrollSnapshot(modalCard = root.querySelector(".modal-card")) {
+  if (!(modalCard instanceof HTMLElement)) {
+    return null;
+  }
+
+  return {
+    scrollTop: modalCard.scrollTop,
+    scrollLeft: modalCard.scrollLeft
+  };
+}
+
+function updateModalScrollSnapshot(modalCard = root.querySelector(".modal-card")) {
+  modalScrollSnapshot = getModalScrollSnapshot(modalCard);
+  return modalScrollSnapshot;
+}
+
+function restoreModalScrollSnapshot(snapshot = modalScrollSnapshot) {
+  const modalCard = root.querySelector(".modal-card");
+  if (!modalCard || !snapshot) {
+    return;
+  }
+
+  modalCard.scrollTop = snapshot.scrollTop || 0;
+  modalCard.scrollLeft = snapshot.scrollLeft || 0;
+}
+
+function scheduleModalScrollRestore(snapshot = modalScrollSnapshot) {
+  if (pendingModalScrollRestoreFrame) {
+    window.cancelAnimationFrame(pendingModalScrollRestoreFrame);
+  }
+
+  pendingModalScrollRestoreFrame = window.requestAnimationFrame(() => {
+    restoreModalScrollSnapshot(snapshot);
+    pendingModalScrollRestoreFrame = null;
+  });
+}
+
 function scheduleCompanySearchFocusRestore() {
   if (pendingCompanySearchFocusRestoreFrame) {
     window.cancelAnimationFrame(pendingCompanySearchFocusRestoreFrame);
@@ -2113,16 +2156,11 @@ function renderApp() {
 }
 
 function renderAppPreserveModalScroll() {
-  const modalCard = root.querySelector(".modal-card");
-  const scrollTop = modalCard?.scrollTop || 0;
-  const scrollLeft = modalCard?.scrollLeft || 0;
+  const snapshot = getModalScrollSnapshot();
   renderApp();
   window.requestAnimationFrame(() => {
-    const nextModalCard = root.querySelector(".modal-card");
-    if (nextModalCard) {
-      nextModalCard.scrollTop = scrollTop;
-      nextModalCard.scrollLeft = scrollLeft;
-    }
+    restoreModalScrollSnapshot(snapshot);
+    updateModalScrollSnapshot();
   });
 }
 
@@ -3030,7 +3068,7 @@ async function runCompanyResearch() {
 
   state.modal.researchLoading = true;
   state.modal.researchError = "";
-  renderApp();
+  renderAppPreserveModalScroll();
 
   try {
     const result = await companyResearchService.researchCompany({
@@ -3056,13 +3094,13 @@ async function runCompanyResearch() {
         companyName: state.modal.researchResult.companyName
       });
     }
-    renderApp();
+    renderAppPreserveModalScroll();
     showToast(result.companyCandidates?.length ? "Potential companies found." : "Website research complete.");
   } catch (error) {
     console.error(error);
     state.modal.researchLoading = false;
     state.modal.researchError = error.message || "Could not run the company finder.";
-    renderApp();
+    renderAppPreserveModalScroll();
     showToast(error.message || "Could not run the company finder.");
   }
 }
@@ -3080,7 +3118,7 @@ async function runExternalSponsorSearch() {
 
   state.modal.researchLoading = true;
   state.modal.researchError = "";
-  renderApp();
+  renderAppPreserveModalScroll();
 
   try {
     const result = await companyResearchService.externalSponsorSearch({
@@ -3095,13 +3133,13 @@ async function runExternalSponsorSearch() {
     state.modal.researchResult = buildResearchResultViewModel(result);
     state.modal.selectedCompanyCandidateId = result.companyCandidates?.[0]?.id || "";
     state.modal.appliedCompanyCandidateId = "";
-    renderApp();
+    renderAppPreserveModalScroll();
     showToast("External sponsor search complete.");
   } catch (error) {
     console.error(error);
     state.modal.researchLoading = false;
     state.modal.researchError = error.message || "External sponsor search failed.";
-    renderApp();
+    renderAppPreserveModalScroll();
     showToast(error.message || "External sponsor search failed.");
   }
 }
@@ -3324,7 +3362,7 @@ root.addEventListener("click", async (event) => {
       state.modal.researchError = "";
       state.modal.researchResult = null;
       state.modal.selectedCompanyCandidateId = "";
-      renderApp();
+      renderAppPreserveModalScroll();
       return;
     case "set-company-search-mode":
       state.modal.companySearchMode = id === "industry" ? "industry" : "company";
@@ -3332,7 +3370,7 @@ root.addEventListener("click", async (event) => {
       state.modal.researchResult = null;
       state.modal.selectedCompanyCandidateId = "";
       state.modal.appliedCompanyCandidateId = "";
-      renderApp();
+      renderAppPreserveModalScroll();
       return;
     case "toggle-modal-finder":
       state.modal.finderOpen = !state.modal.finderOpen;
@@ -3355,7 +3393,7 @@ root.addEventListener("click", async (event) => {
       }
 
       previewResearchCompanyCandidate(candidate);
-      renderApp();
+      renderAppPreserveModalScroll();
       return;
     }
     case "select-company-candidate": {
@@ -3851,7 +3889,7 @@ root.addEventListener("input", (event) => {
         hasProposalDate: checked,
         proposalDate: checked ? state.modal.draft.proposalDate || "" : ""
       };
-      renderApp();
+      renderAppPreserveModalScroll();
       return;
     }
 
@@ -3861,7 +3899,7 @@ root.addEventListener("input", (event) => {
         hasInterviewDate: checked,
         interviewDate: checked ? state.modal.draft.interviewDate || "" : ""
       };
-      renderApp();
+      renderAppPreserveModalScroll();
       return;
     }
 
@@ -4185,7 +4223,29 @@ root.addEventListener("dragend", () => {
   resetEditorDragState();
 });
 
+root.addEventListener(
+  "scroll",
+  (event) => {
+    if (event.target instanceof HTMLElement && event.target.classList.contains("modal-card")) {
+      updateModalScrollSnapshot(event.target);
+    }
+  },
+  true
+);
+
+root.addEventListener("pointerdown", (event) => {
+  if (!isModalScrollableTarget(event.target)) {
+    return;
+  }
+
+  updateModalScrollSnapshot(event.target.closest(".modal-card"));
+});
+
 root.addEventListener("focusin", (event) => {
+  if (isModalScrollableTarget(event.target)) {
+    scheduleModalScrollRestore();
+  }
+
   if (isRestoringEditorFocus) {
     return;
   }
