@@ -14,7 +14,7 @@ const projectDir = process.cwd();
 const port = Number(process.env.PORT || 3000);
 const buildVersion = new Date().toISOString().split("T")[0];
 const openaiApiKey = (process.env.OPENAI_API_KEY || "").trim();
-const openaiModel = "gpt-5.4-mini";
+const openaiModel = (process.env.OPENAI_MODEL || "gpt-5.4-mini").trim();
 const openaiChatMaxMessageLength = 4000;
 const openai = openaiApiKey ? new OpenAI({ apiKey: openaiApiKey }) : null;
 
@@ -406,25 +406,33 @@ function getOpenAIChatErrorDetails(error) {
   };
 }
 
-async function generateOpenAIChatReply(message) {
+async function generateOpenAIChatReply(message, options = {}) {
   if (!openai) {
     throw new Error("OPENAI_API_KEY is not configured on the server.");
   }
 
   const cleanMessage = String(message || "").trim();
-  const requiresWebSearch = shouldUseOpenAIWebSearch(cleanMessage);
+  const context = String(options.context || "").trim().slice(0, 5000);
+  const useWebSearch =
+    options.useWebSearch === true
+      ? true
+      : options.useWebSearch === false
+        ? false
+        : shouldUseOpenAIWebSearch(cleanMessage);
   const prompt = [
-    "You are a concise team sponsorship research helper for a student racing team.",
-    "Help identify the best public outreach route for a company.",
-    "Focus on whether the company appears to have:",
+    "You are Atomic AI, a helpful ChatGPT-style teammate inside a student racing team sponsorship portal.",
+    "Answer almost any reasonable team question clearly, practically, and concisely.",
+    "For sponsorship research, help identify the best public outreach route for a company.",
+    "When relevant, focus on whether the company appears to have:",
     "- a direct contact email",
     "- a sponsorship email",
     "- a partnerships page",
     "- a careers or contact page",
     "- another practical outreach route",
-    "When current company or contact information is needed, use web search and base the answer on public sources.",
+    "When current company/contact information is needed, use web search and base the answer on public sources.",
     "If no direct sponsorship route is visible, say the best fallback route and why.",
-    "Keep the answer concise and useful."
+    "For email draft review, give specific wording and structure improvements without rewriting the whole email unless asked.",
+    "Keep answers useful, friendly, and short enough for a busy teammate."
   ].join("\n");
 
   const response = await openai.responses.create({
@@ -436,10 +444,16 @@ async function generateOpenAIChatReply(message) {
         search_context_size: "low"
       }
     ],
-    tool_choice: requiresWebSearch ? "required" : "auto",
+    tool_choice: useWebSearch ? "required" : "auto",
     include: ["web_search_call.action.sources"],
-    max_output_tokens: 500,
-    input: `${prompt}\n\nUser request:\n${cleanMessage}`
+    max_output_tokens: Number(options.maxOutputTokens || 650),
+    input: [
+      prompt,
+      context ? `Portal context:\n${context}` : "",
+      `User request:\n${cleanMessage}`
+    ]
+      .filter(Boolean)
+      .join("\n\n")
   });
 
   const reply = String(response.output_text || "").trim();
@@ -3039,7 +3053,11 @@ async function handleRequest(request, response) {
         return;
       }
 
-      const result = await generateOpenAIChatReply(message);
+      const result = await generateOpenAIChatReply(message, {
+        context: body?.context || "",
+        useWebSearch: typeof body?.useWebSearch === "boolean" ? body.useWebSearch : undefined,
+        maxOutputTokens: body?.maxOutputTokens
+      });
       sendJson(response, 200, { reply: result.reply });
     } catch (error) {
       if (error instanceof SyntaxError) {

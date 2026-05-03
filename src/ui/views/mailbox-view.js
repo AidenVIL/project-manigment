@@ -3,10 +3,10 @@ import { escapeHtml, formatDate } from "../../utils/formatters.js";
 function renderMailboxHeader(mailbox) {
   const canConnect = mailbox.connectEnabled !== false;
   return `
-    <div class="section-header">
+    <div class="section-header mailbox-header">
       <div>
-        <span class="eyebrow">Team Mailbox</span>
-        <h2>Inbox & Sending</h2>
+        <span class="eyebrow">Gmail Workspace</span>
+        <h2>Team Inbox</h2>
       </div>
       <div class="mailbox-actions">
         ${
@@ -30,11 +30,11 @@ function renderMailboxHeader(mailbox) {
 
 function renderInboxList(mailbox) {
   if (mailbox.loading) {
-    return `<div class="empty-inline">Loading inbox...</div>`;
+    return `<div class="empty-inline gmail-empty">Loading inbox...</div>`;
   }
 
   if (!mailbox.messages.length) {
-    return `<div class="empty-inline">No messages found for this search.</div>`;
+    return `<div class="empty-inline gmail-empty">No messages found for this search.</div>`;
   }
 
   return `
@@ -48,9 +48,12 @@ function renderInboxList(mailbox) {
               data-action="open-mailbox-message"
               data-id="${message.id}"
             >
-              <strong>${escapeHtml(message.subject || "(No subject)")}</strong>
-              <span>${escapeHtml(message.from || "Unknown sender")}</span>
-              <small>${escapeHtml(message.snippet || "")}</small>
+              <span class="mail-item__avatar">${escapeHtml((message.from || "?").trim().slice(0, 1).toUpperCase())}</span>
+              <span class="mail-item__main">
+                <span class="mail-item__sender">${escapeHtml(message.from || "Unknown sender")}</span>
+                <strong>${escapeHtml(message.subject || "(No subject)")}</strong>
+                <small>${escapeHtml(message.snippet || "")}</small>
+              </span>
             </button>
           `
         )
@@ -65,7 +68,7 @@ function renderSelectedMessage(mailbox) {
   if (!message) {
     return `
       <div class="empty-inline">
-        Select an email from the inbox to read it here.
+        Select an email to read it here.
       </div>
     `;
   }
@@ -87,33 +90,67 @@ function renderSelectedMessage(mailbox) {
   `;
 }
 
+function renderComposeRecommendation(compose = {}) {
+  if (compose.aiLoading) {
+    return `<div class="compose-ai-card">Reading the draft and looking for improvements...</div>`;
+  }
+
+  if (compose.aiError) {
+    return `<div class="compose-ai-card compose-ai-card--danger">${escapeHtml(compose.aiError)}</div>`;
+  }
+
+  if (compose.aiRecommendation) {
+    return `
+      <div class="compose-ai-card">
+        ${escapeHtml(compose.aiRecommendation).replace(/\n/g, "<br />")}
+      </div>
+    `;
+  }
+
+  return `<div class="compose-ai-card compose-ai-card--muted">AI suggestions will appear here as you draft.</div>`;
+}
+
 function renderComposePanel(mailbox) {
+  const compose = mailbox.compose || {};
   return `
     <form id="gmail-compose-form" class="mail-compose">
       <div class="mail-compose-head">
         <div>
-          <span class="eyebrow">Compose</span>
-          <h3>Send From ${escapeHtml(mailbox.emailAddress || "Team Mailbox")}</h3>
+          <span class="eyebrow">New Message</span>
+          <h3>${escapeHtml(mailbox.emailAddress || "Team Mailbox")}</h3>
         </div>
+        <button type="button" class="ghost-button ghost-button--compact" data-action="run-compose-ai" ${
+          compose.aiLoading ? "disabled" : ""
+        }>
+          ${compose.aiLoading ? "Reviewing..." : "AI Review"}
+        </button>
       </div>
-      <label class="field">
-        <span>To</span>
-        <input name="to" type="email" placeholder="partner@company.com" required />
-      </label>
-      <label class="field">
-        <span>Subject</span>
-        <input name="subject" placeholder="Partnership update from Atomic" required />
-      </label>
-      <label class="field">
-        <span>Message Body</span>
-        <textarea name="htmlBody" rows="12" placeholder="<p>Hi James,</p><p>...</p>" required></textarea>
-      </label>
-      <p class="mail-compose-note">
-        This field accepts HTML, so you can paste in template output from the email editor.
-      </p>
-      <button type="submit" class="primary-button">
-        Send Email
-      </button>
+      <div class="gmail-compose-fields">
+        <label>
+          <span>To</span>
+          <input name="to" type="email" placeholder="partner@company.com" value="${escapeHtml(compose.to || "")}" required />
+        </label>
+        <label>
+          <span>Subject</span>
+          <input name="subject" placeholder="Partnership update from Atomic" value="${escapeHtml(compose.subject || "")}" required />
+        </label>
+        <textarea name="htmlBody" rows="12" placeholder="Hi James,&#10;&#10;I’m reaching out from Atomic..." required>${escapeHtml(
+          compose.htmlBody || ""
+        )}</textarea>
+      </div>
+      <aside class="compose-ai">
+        <div class="compose-ai__head">
+          <span class="eyebrow">AI Draft Coach</span>
+          <small>Clarity, tone, next step</small>
+        </div>
+        ${renderComposeRecommendation(compose)}
+      </aside>
+      <div class="mail-compose-footer">
+        <span class="mail-compose-note">Plain text or pasted HTML both work.</span>
+        <button type="submit" class="primary-button">
+          Send
+        </button>
+      </div>
     </form>
   `;
 }
@@ -131,26 +168,28 @@ export function renderMailboxView({ mailbox }) {
               <span class="mailbox-status-text">${escapeHtml(mailbox.emailAddress || "Gmail connected")}</span>
             </div>
             ${mailbox.error ? `<div class="inline-message inline-message--danger">${escapeHtml(mailbox.error)}</div>` : ""}
-            <div class="mailbox-grid">
-              <article class="panel">
-                <form id="mailbox-search-form" class="mailbox-search">
-                  <label class="field">
-                    <span>Search Inbox</span>
-                    <input name="query" value="${escapeHtml(mailbox.query)}" placeholder="from:company.com or proposal" />
-                  </label>
-                  <button type="submit" class="ghost-button">Search</button>
-                </form>
+            <div class="gmail-toolbar panel">
+              <form id="mailbox-search-form" class="mailbox-search">
+                <label class="field">
+                  <span>Search mail</span>
+                  <input name="query" value="${escapeHtml(mailbox.query)}" placeholder="from:company.com or proposal" />
+                </label>
+                <button type="submit" class="ghost-button">Search</button>
+              </form>
+            </div>
+            <div class="mailbox-grid gmail-layout">
+              <article class="panel gmail-list-panel">
                 ${renderInboxList(mailbox)}
               </article>
               <div class="mailbox-stack">
-                <article class="panel">
+                <article class="panel gmail-message-panel">
                   <div class="preview-head">
-                    <span class="eyebrow">Selected Message</span>
-                    <h3>Inbox Detail</h3>
+                    <span class="eyebrow">Message</span>
+                    <h3>Conversation</h3>
                   </div>
                   ${renderSelectedMessage(mailbox)}
                 </article>
-                <article class="panel">
+                <article class="panel gmail-compose-panel">
                   ${renderComposePanel(mailbox)}
                 </article>
               </div>

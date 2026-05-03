@@ -48,6 +48,40 @@ export const atomicIntelligenceService = {
 
     return response.json();
   },
+  async askAssistant({
+    message = "",
+    context = "",
+    useWebSearch,
+    maxOutputTokens
+  } = {}) {
+    const body = {
+      message,
+      context
+    };
+
+    if (typeof useWebSearch === "boolean") {
+      body.useWebSearch = useWebSearch;
+    }
+
+    if (maxOutputTokens) {
+      body.maxOutputTokens = maxOutputTokens;
+    }
+
+    const response = await fetch("/api/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8"
+      },
+      body: JSON.stringify(body)
+    });
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      throw new Error(payload?.error || "AI assistant request failed.");
+    }
+
+    return response.json();
+  },
   async assistEmail({
     mode = "first_outreach",
     company = {},

@@ -191,7 +191,8 @@ const state = {
     messages: [
       {
         role: "assistant",
-        text: "Hi, I’m your sponsor assistant. Ask me about tracked companies, follow-ups, or top-value targets."
+        text:
+          "Hi, I’m Atomic AI. Ask me anything about sponsor research, outreach, emails, planning, or a company you want to contact."
       }
     ]
   },
@@ -205,7 +206,15 @@ const state = {
     messages: [],
     selectedMessageId: "",
     selectedMessage: null,
-    error: ""
+    error: "",
+    compose: {
+      to: "",
+      subject: "",
+      htmlBody: "",
+      aiLoading: false,
+      aiError: "",
+      aiRecommendation: ""
+    }
   },
   accounts: {
     loading: false,
@@ -262,6 +271,7 @@ const state = {
 };
 
 let toastTimer = null;
+let composeAiTimer = null;
 let shouldRestoreEditorFocus = false;
 let currentEditorDrag = null;
 let activeDropZone = null;
@@ -929,6 +939,128 @@ function extractCompanyQueryForAssistant(question = "") {
   return cleaned.length >= 3 ? cleaned : "";
 }
 
+function renderAssistantMessageText(text = "") {
+  const escaped = escapeHtml(String(text || ""));
+  const linked = escaped.replace(
+    /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
+    '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>'
+  );
+  return linked.replace(/\n/g, "<br />");
+}
+
+function buildAssistantContext() {
+  const trackedCompanies = state.companies.slice(0, 12).map((company) => ({
+    companyName: company.companyName,
+    website: company.website,
+    status: company.status,
+    responseStatus: company.responseStatus,
+    contactName: company.contactName,
+    contactEmail: company.contactEmail,
+    sector: company.sector,
+    nextFollowUp: company.nextFollowUp,
+    researchSummary: String(company.researchSummary || "").slice(0, 260),
+    personalizationNotes: String(company.personalizationNotes || "").slice(0, 220)
+  }));
+
+  return JSON.stringify(
+    {
+      teamName: APP_CONFIG.teamName,
+      activeWorkspace: state.workspaceView,
+      trackedCompanyCount: state.companies.length,
+      trackedCompanies,
+      selectedMailboxSubject: state.mailbox.selectedMessage?.subject || "",
+      composeDraft: {
+        to: state.mailbox.compose.to,
+        subject: state.mailbox.compose.subject,
+        body: String(state.mailbox.compose.htmlBody || "").slice(0, 1500)
+      }
+    },
+    null,
+    2
+  );
+}
+
+function getComposeState() {
+  state.mailbox.compose = {
+    to: "",
+    subject: "",
+    htmlBody: "",
+    aiLoading: false,
+    aiError: "",
+    aiRecommendation: "",
+    ...(state.mailbox.compose || {})
+  };
+  return state.mailbox.compose;
+}
+
+function syncComposeStateFromForm(form = root.querySelector("#gmail-compose-form")) {
+  if (!form) {
+    return getComposeState();
+  }
+
+  const compose = getComposeState();
+  compose.to = String(form.elements.to?.value || "");
+  compose.subject = String(form.elements.subject?.value || "");
+  compose.htmlBody = String(form.elements.htmlBody?.value || "");
+  return compose;
+}
+
+function buildComposeRecommendationPrompt(compose = getComposeState()) {
+  return [
+    "Review this sponsorship outreach email draft while the teammate is composing it.",
+    "Give 3-5 concise, specific recommendations that improve clarity, credibility, personalisation, and next-step ask.",
+    "Do not rewrite the whole email unless the draft is very weak. If useful, include one improved sentence.",
+    `To: ${compose.to || "not set"}`,
+    `Subject: ${compose.subject || "not set"}`,
+    `Body:\n${compose.htmlBody || "not set"}`
+  ].join("\n\n");
+}
+
+function scheduleComposeAiRecommendation() {
+  window.clearTimeout(composeAiTimer);
+  const compose = getComposeState();
+  const meaningfulDraftLength = `${compose.subject} ${compose.htmlBody}`.trim().length;
+  if (meaningfulDraftLength < 90) {
+    return;
+  }
+
+  composeAiTimer = window.setTimeout(() => {
+    runComposeAiRecommendation({ quiet: true });
+  }, 1400);
+}
+
+async function runComposeAiRecommendation({ quiet = false } = {}) {
+  const compose = syncComposeStateFromForm();
+  const meaningfulDraftLength = `${compose.subject} ${compose.htmlBody}`.trim().length;
+  if (meaningfulDraftLength < 20 || compose.aiLoading) {
+    if (!quiet && meaningfulDraftLength < 20) {
+      showToast("Write a little more before asking AI for email advice.");
+    }
+    return;
+  }
+
+  compose.aiLoading = true;
+  compose.aiError = "";
+  if (!quiet) {
+    renderApp();
+  }
+
+  try {
+    const payload = await atomicIntelligenceService.askAssistant({
+      message: buildComposeRecommendationPrompt(compose),
+      context: buildAssistantContext(),
+      useWebSearch: false,
+      maxOutputTokens: 450
+    });
+    compose.aiRecommendation = payload.reply || "";
+  } catch (error) {
+    compose.aiError = error.message || "AI recommendations are unavailable right now.";
+  } finally {
+    compose.aiLoading = false;
+    renderApp();
+  }
+}
+
 async function handleAssistantQuestion(question = "") {
   const cleanQuestion = String(question || "").trim();
   if (!cleanQuestion) {
@@ -944,47 +1076,25 @@ async function handleAssistantQuestion(question = "") {
   renderApp();
 
   try {
-    const response = askCompanyAssistant({
+    const payload = await atomicIntelligenceService.askAssistant({
+      message: cleanQuestion,
+      context: buildAssistantContext()
+    });
+
+    state.assistant.messages.push({
+      role: "assistant",
+      text: payload.reply || "I couldn't produce a useful answer yet."
+    });
+  } catch (error) {
+    const fallback = askCompanyAssistant({
       question: cleanQuestion,
       companies: state.companies
     });
-    let finalAnswer = response.answer || "I couldn't produce a useful answer yet.";
-
-    if (response.needsLookup) {
-      const companyQuery = extractCompanyQueryForAssistant(cleanQuestion);
-      if (companyQuery) {
-        try {
-          const lookup = await companyResearchService.researchCompany({
-            companyName: companyQuery,
-            context: "sponsor contact and company summary",
-            searchMode: "company",
-            companySearchMode: "company"
-          });
-
-          const top = lookup.companyCandidates?.[0] || null;
-          if (top) {
-            finalAnswer = [
-              `I found a likely match: ${top.companyName || "Company"}${top.website ? ` (${top.website})` : ""}.`,
-              top.summaryLine || top.snippet || "",
-              top.sponsorSignalsLine ? `Sponsor signals: ${top.sponsorSignalsLine}` : ""
-            ]
-              .filter(Boolean)
-              .join(" ");
-          }
-        } catch {
-          // Keep base assistant response if live lookup fails.
-        }
-      }
-    }
+    const fallbackText = fallback.answer || error.message || "Sorry, I hit an issue answering that.";
 
     state.assistant.messages.push({
       role: "assistant",
-      text: finalAnswer
-    });
-  } catch (error) {
-    state.assistant.messages.push({
-      role: "assistant",
-      text: error.message || "Sorry, I hit an issue answering that."
+      text: fallbackText
     });
   } finally {
     state.assistant.loading = false;
@@ -1674,6 +1784,7 @@ function renderShell() {
           : ""
       }
       ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}
+      ${renderAssistantWidget()}
     </div>
   `;
 }
@@ -1780,33 +1891,41 @@ function drawThankYouCard() {
 function renderAssistantWidget() {
   const assistant = state.assistant;
   const quickPrompts = [
-    "How many uncontacted companies?",
-    "Top ask right now",
+    "Does McLaren have a sponsorship contact?",
+    "Improve my current email draft",
     "Follow-ups due soon"
   ];
 
   return `
     <section class="assistant-widget ${assistant.open ? "is-open" : ""}">
       <button type="button" class="assistant-widget__toggle" data-action="toggle-assistant">
-        ${assistant.open ? "Close Assistant" : "Ask Assistant"}
+        ${assistant.open ? "Close AI" : "Ask Atomic AI"}
       </button>
       ${
         assistant.open
           ? `
             <div class="assistant-widget__panel panel">
               <div class="assistant-widget__head">
-                <strong>Sponsor Assistant</strong>
+                <div>
+                  <strong>Atomic AI</strong>
+                  <span>Research, outreach, email help</span>
+                </div>
               </div>
               <div class="assistant-widget__messages">
                 ${assistant.messages
                   .map(
                     (message) => `
                       <article class="assistant-widget__message assistant-widget__message--${message.role}">
-                        <p>${escapeHtml(message.text)}</p>
+                        <p>${renderAssistantMessageText(message.text)}</p>
                       </article>
                     `
                   )
                   .join("")}
+                ${
+                  assistant.loading
+                    ? `<article class="assistant-widget__message assistant-widget__message--assistant"><p>Thinking...</p></article>`
+                    : ""
+                }
               </div>
               <div class="assistant-widget__prompts">
                 ${quickPrompts
@@ -1825,13 +1944,13 @@ function renderAssistantWidget() {
                   .join("")}
               </div>
               <form id="assistant-form" class="assistant-widget__form">
-                <input
+                <textarea
                   name="question"
-                  placeholder="Ask about your companies..."
-                  value="${escapeHtml(assistant.input || "")}"
+                  rows="2"
+                  placeholder="Ask anything..."
                   ${assistant.loading ? "disabled" : ""}
                   required
-                />
+                >${escapeHtml(assistant.input || "")}</textarea>
                 <button type="submit" class="primary-button primary-button--compact" ${
                   assistant.loading ? "disabled" : ""
                 }>
@@ -1857,6 +1976,23 @@ function renderLoadingScreen() {
   `;
 }
 
+function applyWritingAssists(container = root) {
+  const textInputTypes = new Set(["", "text", "search", "tel"]);
+
+  container.querySelectorAll("textarea, input, [contenteditable='true']").forEach((element) => {
+    const tagName = element.tagName.toLowerCase();
+    const type = tagName === "input" ? String(element.getAttribute("type") || "text").toLowerCase() : "";
+
+    if (tagName === "input" && !textInputTypes.has(type)) {
+      return;
+    }
+
+    element.setAttribute("spellcheck", "true");
+    element.setAttribute("autocorrect", "on");
+    element.setAttribute("autocapitalize", "sentences");
+  });
+}
+
 function renderApp() {
   if (!state.editor?.open && pendingFocusRestoreFrame) {
     window.cancelAnimationFrame(pendingFocusRestoreFrame);
@@ -1865,6 +2001,7 @@ function renderApp() {
 
   if (state.loading) {
     root.innerHTML = renderLoadingScreen();
+    applyWritingAssists();
     return;
   }
 
@@ -1876,6 +2013,7 @@ function renderApp() {
       setupUsername: state.auth.setupUsername,
       supabaseConnection: state.supabaseConnection
     });
+    applyWritingAssists();
     return;
   }
 
@@ -1887,6 +2025,7 @@ function renderApp() {
       preview,
       mailboxConnected: state.mailbox.connected
     });
+    applyWritingAssists();
     if (shouldRestoreEditorFocus) {
       scheduleEditorFocusRestore();
     }
@@ -1895,6 +2034,7 @@ function renderApp() {
 
   ensureScrutineeringState();
   root.innerHTML = renderShell();
+  applyWritingAssists();
   drawThankYouCard();
 }
 
@@ -3357,6 +3497,9 @@ root.addEventListener("click", async (event) => {
     case "open-mailbox-message":
       await openMailboxMessage(id);
       return;
+    case "run-compose-ai":
+      await runComposeAiRecommendation();
+      return;
     case "disconnect-gmail":
       try {
         await gmailService.disconnect();
@@ -3368,7 +3511,8 @@ root.addEventListener("click", async (event) => {
           messages: [],
           selectedMessageId: "",
           selectedMessage: null,
-          error: ""
+          error: "",
+          compose: getComposeState()
         };
         renderApp();
         showToast("Gmail disconnected.");
@@ -3504,6 +3648,17 @@ root.addEventListener("click", async (event) => {
 });
 
 root.addEventListener("input", (event) => {
+  if (event.target.closest("#gmail-compose-form")) {
+    syncComposeStateFromForm(event.target.closest("#gmail-compose-form"));
+    scheduleComposeAiRecommendation();
+    return;
+  }
+
+  if (event.target.closest("#assistant-form")) {
+    state.assistant.input = event.target.value;
+    return;
+  }
+
   if (event.target.id === "intelligence-chat-input") {
     state.intelligence.input = event.target.value;
     return;
@@ -4019,15 +4174,23 @@ root.addEventListener("submit", async (event) => {
   }
 
   if (event.target.id === "gmail-compose-form") {
-    const formData = new FormData(event.target);
+    const compose = syncComposeStateFromForm(event.target);
 
     try {
       await gmailService.sendMessage({
-        to: String(formData.get("to") || ""),
-        subject: String(formData.get("subject") || ""),
-        htmlBody: String(formData.get("htmlBody") || "")
+        to: compose.to,
+        subject: compose.subject,
+        htmlBody: compose.htmlBody
       });
       event.target.reset();
+      state.mailbox.compose = {
+        to: "",
+        subject: "",
+        htmlBody: "",
+        aiLoading: false,
+        aiError: "",
+        aiRecommendation: ""
+      };
       await loadMailboxMessages(false);
       showToast("Email sent from Gmail.");
     } catch (error) {
