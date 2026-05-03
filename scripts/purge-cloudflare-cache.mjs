@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import "dotenv/config";
+
 /**
  * Cloudflare Cache Purge Script
  * Automatically purges Cloudflare cache after deployment
