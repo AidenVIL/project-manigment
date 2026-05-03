@@ -1,7 +1,7 @@
 import { createReadStream, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { createServer } from "node:http";
-import { extname, join, normalize, resolve } from "node:path";
+import { extname, join, normalize, resolve, sep } from "node:path";
 import crypto from "node:crypto";
 import dotenv from "dotenv";
 import OpenAI from "openai";
@@ -10,6 +10,7 @@ import OpenAI from "openai";
 dotenv.config();
 
 const distDir = resolve(process.cwd(), "dist");
+const projectDir = process.cwd();
 const port = Number(process.env.PORT || 3000);
 const buildVersion = new Date().toISOString().split("T")[0];
 const openaiApiKey = (process.env.OPENAI_API_KEY || "").trim();
@@ -196,7 +197,8 @@ function getRuntimeConfigScript() {
 
 async function resolveRequestPath(urlPathname) {
   const safePath = normalize(decodeURIComponent(urlPathname)).replace(/^(\.\.[/\\])+/, "");
-  const targetPath = join(distDir, safePath);
+  const relativeSafePath = safePath.replace(/^[/\\]+/, "");
+  const targetPath = join(distDir, relativeSafePath);
   const requestedExtension = extname(safePath);
 
   if (safePath === "/" || safePath === ".") {
@@ -214,6 +216,20 @@ async function resolveRequestPath(urlPathname) {
       return targetPath;
     }
   } catch {
+    if (requestedExtension) {
+      const topLevelDir = relativeSafePath.split(/[\\/]+/)[0] || "";
+      if (topLevelDir === "src" || topLevelDir === "assets") {
+        const allowedBase = resolve(projectDir, topLevelDir);
+        const fallbackPath = resolve(projectDir, relativeSafePath);
+        if (
+          (fallbackPath === allowedBase || fallbackPath.startsWith(`${allowedBase}${sep}`)) &&
+          existsSync(fallbackPath)
+        ) {
+          return fallbackPath;
+        }
+      }
+    }
+
     if (requestedExtension) {
       const notFoundError = new Error(`Static asset not found: ${safePath}`);
       notFoundError.statusCode = 404;
